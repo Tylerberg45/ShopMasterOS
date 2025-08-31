@@ -1,0 +1,40 @@
+
+{% extends "layout.html" %}
+{% block content %}
+<h2 class="mb-4">Results for "{{ term }}"</h2>
+{% if results %}
+  <table class="table table-hover">
+    <thead>
+      <tr><th>Name</th><th>Phone</th><th>Open</th></tr>
+    </thead>
+    <tbody>
+      {% for r in results %}
+      <tr>
+        <td>{{ r.first_name }} {{ r.last_name }}</td>
+        <td>{{ r.phone }}</td>
+        <td><a class="btn btn-outline-primary btn-sm" href="/ui/customer/{{ r.id }}">Open</a></td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <div class="alert alert-warning">
+    No matches found for <strong>{{ term }}</strong>.
+    {% if debug_info %}
+    <div class="mt-2">
+      <small class="text-muted">
+        Debug info:<br>
+        Search term: {{ term }}<br>
+        Digits extracted: {{ debug_info.digits }}<br>
+        Formatted phone: {{ debug_info.formatted_phone }}<br>
+        SQL query: {{ debug_info.query }}
+      </small>
+    </div>
+    {% endif %}
+  </div>
+{% endif %}
+
+<div class="mt-4">
+    <a href="/" class="btn btn-primary">Back to Search</a>
+</div>
+{% endblock %}

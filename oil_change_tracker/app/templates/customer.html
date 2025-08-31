@@ -1,0 +1,183 @@
+~
+{% extends "layout.html" %}
+{% block content %}
+<div class="mb-4">
+  <h2 class="mb-1">{{ c.first_name }} {{ c.last_name }}</h2>
+  <div class="muted mb-2">Phone: {{ c.phone }}</div>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h4 class="card-title">Oil Change Plan</h4>
+    {% if plan %}
+      <div class="mb-2">
+        <span class="pill">Total: {{ plan.total_allowed }}</span>
+        <span class="pill ms-2">Remaining: {{ plan.remaining }}</span>
+      </div>
+      <form method="post" action="/ui/customer/{{ c.id }}/deduct" class="d-inline" onsubmit="return confirm('Deduct one oil change from {{ c.first_name }} {{ c.last_name }}?')">
+        <input name="note" class="form-control d-inline w-auto" placeholder="Note" value="Oil change used">
+        <button class="btn btn-warning ms-1" type="submit">Deduct (−1)</button>
+      </form>
+      <form method="post" action="/ui/customer/{{ c.id }}/restore" class="d-inline ms-2">
+        <input name="note" class="form-control d-inline w-auto" placeholder="Note" value="Restored oil change">
+        <button class="btn btn-success ms-1" type="submit">Restore (+1)</button>
+      </form>
+    {% else %}
+      <div class="text-danger">No active plan.</div>
+    {% endif %}
+  </div>
+</div>
+
+<div class="mb-4">
+  <h4>Vehicles</h4>
+  <table class="table table-striped align-middle">
+    <thead>
+      <tr><th>Plate</th><th>VIN</th><th>Year</th><th>Make</th><th>Model</th><th>Oil Spec</th><th>Action</th></tr>
+    </thead>
+    <tbody>
+    {% for v in vehicles %}
+      <tr>
+        <td>{{ v.plate }}</td>
+        <td>{{ v.vin }}</td>
+        <td>{{ v.year }}</td>
+        <td>{{ v.make }}</td>
+        <td>{{ v.model }}</td>
+        <td>{{ v.oil_type }} {% if v.oil_capacity_quarts %} ({{ v.oil_capacity_quarts }} qt){% endif %}</td>
+        <td>
+          <form method="post" action="/vehicles/{{ v.id }}/refresh_specs" class="d-inline">
+            <button class="btn btn-outline-info btn-sm" type="submit">Lookup</button>
+          </form>
+          <button class="btn btn-outline-primary btn-sm ms-1" onclick="openEditVehicle({{ v.id }}, '{{ v.plate }}', '{{ v.vin }}', '{{ v.year }}', '{{ v.make }}', '{{ v.model }}')">Edit</button>
+          {% if request.query_params.error %}
+          <div class="text-danger">{{ request.query_params.error }}</div>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="card mb-4">
+  <div class="card-body">
+    <h5 class="card-title">Add Vehicle</h5>
+    <form method="post" action="/ui/customer/{{ c.id }}/vehicle" class="row g-2 align-items-end">
+      <div class="col-md-2"><input name="plate" class="form-control" placeholder="License plate"></div>
+      <div class="col-md-3"><input name="vin" class="form-control" placeholder="VIN (optional)"></div>
+      <div class="col-md-2"><input name="year" class="form-control" placeholder="Year"></div>
+      <div class="col-md-2"><input name="make" class="form-control" placeholder="Make"></div>
+      <div class="col-md-2"><input name="model" class="form-control" placeholder="Model"></div>
+      <div class="col-md-1 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
+    </form>
+    <div class="muted mt-2">If VIN left blank and plate provided, the system will try to look it up (demo mode returns a sample VIN for plate <strong>TEST123</strong>).</div>
+  </div>
+</div>
+
+<div class="mb-4">
+  <h4>Recent Activity</h4>
+  <table class="table table-bordered table-sm">
+    <thead>
+      <tr><th>When</th><th>Change</th><th>Note</th></tr>
+    </thead>
+    <tbody>
+    {% for e in ledger %}
+      <tr>
+        <td>{{ e.created_at }}</td>
+        <td>{{ e.delta }}</td>
+        <td>{{ e.note }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<!-- Edit Vehicle Modal -->
+<div class="modal fade" id="editVehicleModal" tabindex="-1" aria-labelledby="editVehicleModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editVehicleModalLabel">Edit Vehicle</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="editVehicleForm" method="post">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="editPlate" class="form-label">License Plate</label>
+            <input type="text" class="form-control" id="editPlate" name="plate">
+          </div>
+          <div class="mb-3">
+            <label for="editVin" class="form-label">VIN</label>
+            <input type="text" class="form-control" id="editVin" name="vin">
+          </div>
+          <div class="mb-3">
+            <label for="editYear" class="form-label">Year</label>
+            <input type="text" class="form-control" id="editYear" name="year">
+          </div>
+          <div class="mb-3">
+            <label for="editMake" class="form-label">Make</label>
+            <input type="text" class="form-control" id="editMake" name="make">
+          </div>
+          <div class="mb-3">
+            <label for="editModel" class="form-label">Model</label>
+            <input type="text" class="form-control" id="editModel" name="model">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Error Modal -->
+<div class="modal fade" id="errorModal" tabindex="-1" aria-labelledby="errorModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="errorModalLabel">Message</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="errorModalBody">
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" data-bs-dismiss="modal">OK</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function openEditVehicle(id, plate, vin, year, make, model) {
+    const modal = new bootstrap.Modal(document.getElementById('editVehicleModal'));
+    const form = document.getElementById('editVehicleForm');
+    
+    // Set form action
+    form.action = `/vehicles/${id}/update`;
+    
+    // Fill in the form fields
+    document.getElementById('editPlate').value = plate;
+    document.getElementById('editVin').value = vin;
+    document.getElementById('editYear').value = year;
+    document.getElementById('editMake').value = make;
+    document.getElementById('editModel').value = model;
+    
+    modal.show();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    // Check if there's an error parameter in the URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const error = urlParams.get('error');
+    if (error) {
+        // Show error in modal
+        const errorModal = new bootstrap.Modal(document.getElementById('errorModal'));
+        document.getElementById('errorModalBody').textContent = decodeURIComponent(error);
+        errorModal.show();
+        // Clean up the URL
+        window.history.replaceState({}, document.title, window.location.pathname);
+    }
+});
+</script>
+{% endblock %}
