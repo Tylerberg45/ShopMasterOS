@@ -1,0 +1,17 @@
+# Python venv and cache
+.venv/
+__pycache__/
+*.pyc
+
+# Databases & backups
+*.db
+backups/
+
+# Build / packaging
+dist/
+build/
+*.spec
+
+# OS junk
+.DS_Store
+Thumbs.db
