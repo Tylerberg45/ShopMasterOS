@@ -3,7 +3,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 from ..database import get_db
 from ..models.models import Customer, OilChangePlan, OilChangeLedger, Vehicle
-from ..schemas import CustomerCreate, CustomerOut, PlanCreate, PlanOut, SearchQuery
+from ..schemas import CustomerCreate, CustomerOut, PlanCreate, PlanOut, SearchQuery, OilChangeDeduct
+from ..services.telemetry import log_event
 from fastapi.responses import HTMLResponse, RedirectResponse
 from typing import List
 
@@ -51,15 +52,33 @@ def search_customers(q: SearchQuery, db: Session = Depends(get_db)):
     return res
 
 @router.post("/{customer_id}/deduct", response_model=PlanOut)
-def deduct_oil_change(customer_id: int, note: str = "Oil change used", db: Session = Depends(get_db)):
-    log_event('deduct', 'plan', {'customer_id': customer_id, 'note': note})
+def deduct_oil_change(customer_id: int, payload: OilChangeDeduct, db: Session = Depends(get_db)):
+    # Verify vehicle exists and belongs to customer
+    vehicle = db.get(Vehicle, payload.vehicle_id)
+    if not vehicle or vehicle.customer_id != customer_id:
+        raise HTTPException(404, "Vehicle not found or does not belong to this customer")
+    
+    log_event('deduct', 'plan', {
+        'customer_id': customer_id, 
+        'vehicle_id': payload.vehicle_id, 
+        'mileage': payload.mileage,
+        'note': payload.note
+    })
+    
     plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
     if not plan:
         raise HTTPException(404, "Active plan not found")
     if plan.remaining <= 0:
         raise HTTPException(400, "No remaining oil changes")
+        
     plan.remaining -= 1
-    db.add(OilChangeLedger(customer_id=customer_id, delta=-1, note=note))
+    db.add(OilChangeLedger(
+        customer_id=customer_id,
+        vehicle_id=payload.vehicle_id,
+        mileage=payload.mileage,
+        delta=-1,
+        note=payload.note
+    ))
     db.commit()
     db.refresh(plan)
     return plan

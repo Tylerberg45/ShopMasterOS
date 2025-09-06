@@ -42,8 +42,11 @@ class OilChangeLedger(Base):
     __tablename__ = "oil_change_ledger"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=True)
+    mileage: Mapped[int] = mapped_column(Integer, nullable=True)
     delta: Mapped[int] = mapped_column(Integer)  # -1 for use, +1 for restore
     note: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     customer = relationship("Customer", back_populates="ledger_entries")
+    vehicle = relationship("Vehicle")

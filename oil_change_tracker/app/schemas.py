@@ -46,11 +46,20 @@ class PlanOut(BaseModel):
     class Config:
         from_attributes = True
 
+class OilChangeDeduct(BaseModel):
+    vehicle_id: int
+    mileage: int
+    note: str = "Oil change used"
+
 class LedgerEntryOut(BaseModel):
     id: int
     delta: int
     note: str
     customer_id: int
+    vehicle_id: Optional[int] = None
+    mileage: Optional[int] = None
+    class Config:
+        from_attributes = True
 
 class SearchQuery(BaseModel):
     name_or_phone: str = Field(..., description="Enter 'First Last' or phone number")
