@@ -1,0 +1,15 @@
+﻿services:
+  - type: web
+    name: shopmaster-os
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -k uvicorn.workers.UvicornWorker oil_change_tracker.app.main:app
+    plan: free
+    autoDeploy: true
+    disk:
+      name: data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATABASE_URL
+        value: sqlite:////var/data/oilchange.db
