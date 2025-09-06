@@ -1,18 +1,42 @@
+# oil_change_tracker/app/database.py
+import os
+import pathlib
+from typing import Iterator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
-from .core.config import DATABASE_URL
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-connect_args = {}
-if DATABASE_URL.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
+# 1) Read from env (Render sets this); fallback is a local file in the repo root.
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./oilchange.db").strip()
 
-engine = create_engine(DATABASE_URL, echo=False, connect_args=connect_args)
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+# 2) SQLite needs special connect args; others (Postgres, MySQL) don't.
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-class Base(DeclarativeBase):
-    pass
+# 3) If using SQLite, make sure the directory for the DB file exists (no errors on first run).
+if DATABASE_URL.startswith("sqlite:///"):
+    # Extract the path portion after "sqlite:///"
+    db_path_str = DATABASE_URL.replace("sqlite:///", "", 1)
+    db_path = pathlib.Path(db_path_str)
+    # If it's relative, make it absolute relative to current working dir
+    if not db_path.is_absolute():
+        db_path = pathlib.Path.cwd() / db_path
+    # Ensure parent directory exists (e.g., ./, /var/data, etc.)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
 
-def get_db():
+# 4) Create engine + session factory + base class
+engine = create_engine(
+    DATABASE_URL,
+    echo=False,              # flip to True if you want SQL logs
+    future=True,
+    pool_pre_ping=True,
+    connect_args=connect_args,
+)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+Base = declarative_base()
+
+# 5) FastAPI dependency to get a DB session per request
+def get_db() -> Iterator:
     db = SessionLocal()
     try:
         yield db
