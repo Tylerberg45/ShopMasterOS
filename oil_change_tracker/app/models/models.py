@@ -1,6 +1,7 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Boolean
 from sqlalchemy.orm import relationship, Mapped, mapped_column
-from datetime import datetime
+from sqlalchemy.sql import func
+from datetime import datetime, date
 from ..database import Base
 
 class Customer(Base):
@@ -14,6 +15,15 @@ class Customer(Base):
     plans = relationship("OilChangePlan", back_populates="customer", cascade="all, delete-orphan")
     ledger_entries = relationship("OilChangeLedger", back_populates="customer", cascade="all, delete-orphan")
 
+    @property
+    def name(self):
+        """Return the full name of the customer"""
+        # If last_name is empty, first_name contains the full name (possibly combined)
+        if not self.last_name:
+            return self.first_name.strip()
+        else:
+            return f"{self.first_name} {self.last_name}".strip()
+
 class Vehicle(Base):
     __tablename__ = "vehicles"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -25,6 +35,7 @@ class Vehicle(Base):
     plate: Mapped[str] = mapped_column(String(20), index=True, default="")
     oil_type: Mapped[str] = mapped_column(String(20), default="")
     oil_capacity_quarts: Mapped[str] = mapped_column(String(10), default="")
+    oil_weight: Mapped[str] = mapped_column(String(10), default="")
 
     owner = relationship("Customer", back_populates="vehicles")
 
@@ -44,9 +55,11 @@ class OilChangeLedger(Base):
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
     vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=True)
     mileage: Mapped[int] = mapped_column(Integer, nullable=True)
-    delta: Mapped[int] = mapped_column(Integer)  # -1 for use, +1 for restore
+    oil_weight: Mapped[str] = mapped_column(String(10), nullable=True)
+    oil_quarts: Mapped[float] = mapped_column(Integer, nullable=True)
+    delta: Mapped[int] = mapped_column(Integer)  # -1 for use, +4 for tire purchase
     note: Mapped[str] = mapped_column(String(255), default="")
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     customer = relationship("Customer", back_populates="ledger_entries")
     vehicle = relationship("Vehicle")

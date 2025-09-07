@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from datetime import datetime
 from sqlalchemy.orm import Session
+from sqlalchemy import case, desc
 from .database import Base, engine, get_db
 from .models.models import Customer, OilChangePlan, OilChangeLedger, Vehicle
 from .routers import customers as customers_router
@@ -11,26 +13,45 @@ import re
 from urllib.parse import urlencode
 
 app = FastAPI(title="Oil Change Tracker (MVP)")
-templates = Jinja2Templates(directory="oil_change_tracker/app/templates")
+templates = Jinja2Templates(directory="app/templates")
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 
 
 Base.metadata.create_all(bind=engine)
 
-# --- lightweight SQLite auto-migration for new Vehicle columns ---
+# --- lightweight SQLite auto-migration for new columns ---
 from sqlalchemy import text
 def _ensure_vehicle_columns():
     try:
         with engine.connect() as conn:
+            # Add missing columns to vehicles table
             cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('vehicles')").fetchall()]
             alters = []
             if 'oil_type' not in cols:
                 alters.append("ALTER TABLE vehicles ADD COLUMN oil_type VARCHAR(20) DEFAULT ''")
             if 'oil_capacity_quarts' not in cols:
                 alters.append("ALTER TABLE vehicles ADD COLUMN oil_capacity_quarts VARCHAR(10) DEFAULT ''")
+            if 'oil_weight' not in cols:
+                alters.append("ALTER TABLE vehicles ADD COLUMN oil_weight VARCHAR(10) DEFAULT ''")
             for stmt in alters:
                 conn.exec_driver_sql(stmt)
+            
+            # Add missing columns to oil_change_ledger table
+            ledger_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('oil_change_ledger')").fetchall()]
+            ledger_alters = []
+            if 'oil_weight' not in ledger_cols:
+                ledger_alters.append("ALTER TABLE oil_change_ledger ADD COLUMN oil_weight VARCHAR(10)")
+            if 'oil_quarts' not in ledger_cols:
+                ledger_alters.append("ALTER TABLE oil_change_ledger ADD COLUMN oil_quarts FLOAT")
+            if 'mileage' not in ledger_cols:
+                ledger_alters.append("ALTER TABLE oil_change_ledger ADD COLUMN mileage INTEGER")
+            if 'vehicle_id' not in ledger_cols:
+                ledger_alters.append("ALTER TABLE oil_change_ledger ADD COLUMN vehicle_id INTEGER")
+            for stmt in ledger_alters:
+                conn.exec_driver_sql(stmt)
+            
+            conn.commit()
     except Exception:
         # ignore on non-SQLite or if table doesn't exist yet
         pass
@@ -42,6 +63,9 @@ start_periodic_backup(interval_hours=6)
 
 app.include_router(customers_router.router)
 app.include_router(vehicles_router.router)
+
+def get_abs(value):
+    return abs(value)
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
@@ -93,6 +117,60 @@ def ui_search(request: Request, name_or_phone: str = Form(...), db: Session = De
         "term": term
     })
 
+def get_vehicle_oil_changes(db: Session, vehicle_id: int) -> int:
+    """Get the number of oil changes used for a specific vehicle"""
+    return db.query(OilChangeLedger).filter_by(
+        vehicle_id=vehicle_id,
+        delta=-1
+    ).count()
+
+def find_duplicate_vehicles(db: Session, vin: str = "", plate: str = "", year: str = "", make: str = "", model: str = ""):
+    """Find vehicles that might be duplicates based on VIN, plate, or vehicle details"""
+    potential_duplicates = []
+    
+    # Primary check: VIN match (most reliable)
+    if vin and vin.strip():
+        vin_matches = db.query(Vehicle).filter(Vehicle.vin.ilike(f"%{vin.strip()}%")).all()
+        for match in vin_matches:
+            potential_duplicates.append({
+                'vehicle': match,
+                'customer': db.get(Customer, match.customer_id),
+                'match_reason': 'VIN match',
+                'confidence': 'high'
+            })
+    
+    # Secondary check: License plate match
+    if plate and plate.strip():
+        plate_matches = db.query(Vehicle).filter(Vehicle.plate.ilike(f"%{plate.strip().upper()}%")).all()
+        for match in plate_matches:
+            # Skip if already found by VIN
+            if not any(d['vehicle'].id == match.id for d in potential_duplicates):
+                potential_duplicates.append({
+                    'vehicle': match,
+                    'customer': db.get(Customer, match.customer_id),
+                    'match_reason': 'License plate match',
+                    'confidence': 'high'
+                })
+    
+    # Tertiary check: Make/Model/Year combination
+    if year and make and model:
+        detail_matches = db.query(Vehicle).filter(
+            Vehicle.year == year,
+            Vehicle.make.ilike(f"%{make}%"),
+            Vehicle.model.ilike(f"%{model}%")
+        ).all()
+        for match in detail_matches:
+            # Skip if already found by VIN or plate
+            if not any(d['vehicle'].id == match.id for d in potential_duplicates):
+                potential_duplicates.append({
+                    'vehicle': match,
+                    'customer': db.get(Customer, match.customer_id),
+                    'match_reason': 'Vehicle details match',
+                    'confidence': 'medium'
+                })
+    
+    return potential_duplicates
+
 @app.get("/ui/customer/{customer_id}", response_class=HTMLResponse)
 def ui_customer(request: Request, customer_id: int, db: Session = Depends(get_db)):
     c = db.get(Customer, customer_id)
@@ -100,26 +178,173 @@ def ui_customer(request: Request, customer_id: int, db: Session = Depends(get_db
         return HTMLResponse("Customer not found", status_code=404)
     plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
     vehicles = db.query(Vehicle).filter_by(customer_id=customer_id).all()
-    ledger = db.query(OilChangeLedger).filter_by(customer_id=customer_id).order_by(OilChangeLedger.created_at.desc()).limit(25).all()
-    return templates.TemplateResponse("customer.html", {"request": request, "c": c, "plan": plan, "vehicles": vehicles, "ledger": ledger})
+    ledger = db.query(OilChangeLedger).filter_by(customer_id=customer_id).order_by(OilChangeLedger.created_at.desc()).limit(50).all()
+    
+    # Sort by created_at (service_date will be used in the future)
+    try:
+        ledger.sort(key=lambda x: x.created_at or datetime.min, reverse=True)
+    except Exception as e:
+        # If sorting fails, keep the original order
+        print(f"Sorting error: {e}")
+        pass
+    
+    # Get oil changes used per vehicle
+    vehicle_oil_changes = {v.id: get_vehicle_oil_changes(db, v.id) for v in vehicles}
+    
+    # Get last mileage for each vehicle for validation
+    vehicle_last_mileage = {}
+    for v in vehicles:
+        last_entry = db.query(OilChangeLedger).filter_by(
+            customer_id=customer_id, 
+            vehicle_id=v.id
+        ).filter(
+            OilChangeLedger.mileage.isnot(None)
+        ).order_by(OilChangeLedger.created_at.desc()).first()
+        vehicle_last_mileage[v.id] = last_entry.mileage if last_entry else 0
+    
+    # Get today's date for form defaults
+    today_date = datetime.now().strftime("%Y-%m-%d")
+    
+    return templates.TemplateResponse("customer.html", {
+        "request": request,
+        "c": c,
+        "plan": plan,
+        "vehicles": vehicles,
+        "ledger": ledger,
+        "vehicle_oil_changes": vehicle_oil_changes,
+        "vehicle_last_mileage": vehicle_last_mileage,
+        "today_date": today_date,
+        "abs": abs
+    })
 
 @app.post("/ui/customer/{customer_id}/deduct")
-def ui_deduct(customer_id: int, note: str = Form("Oil change used"), db: Session = Depends(get_db)):
+def ui_deduct(
+    customer_id: int,
+    vehicle_id: int = Form(...),
+    mileage: int = Form(...),
+    service_date: str = Form(None),
+    note: str = Form("Oil change used"),
+    db: Session = Depends(get_db)
+):
+    # Verify vehicle exists and belongs to customer
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.customer_id != customer_id:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+vehicle", status_code=303)
+
     plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
-    if not plan or plan.remaining <= 0:
-        return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
+    if not plan:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+free+oil+changes", status_code=303)
+    
     plan.remaining -= 1
-    db.add(OilChangeLedger(customer_id=customer_id, delta=-1, note=note))
+    # Parse the service date or use current date
+    try:
+        created_date = datetime.strptime(service_date, '%Y-%m-%d') if service_date else datetime.utcnow()
+    except ValueError:
+        return RedirectResponse(
+            f"/ui/customer/{customer_id}?error=Invalid+date+format.+Use+YYYY-MM-DD",
+            status_code=303
+        )
+
+    db.add(OilChangeLedger(
+        customer_id=customer_id,
+        vehicle_id=vehicle_id,
+        mileage=mileage,
+        delta=-1,
+        note=note,
+        created_at=created_date
+    ))
     db.commit()
     return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
 
-@app.post("/ui/customer/{customer_id}/restore")
-def ui_restore(customer_id: int, note: str = Form("Restored oil change"), db: Session = Depends(get_db)):
+@app.post("/ui/customer/{customer_id}/edit-plan")
+def ui_edit_plan(
+    customer_id: int,
+    remaining: int = Form(...),
+    db: Session = Depends(get_db)
+):
     plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
-    if not plan or plan.remaining >= plan.total_allowed:
-        return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
-    plan.remaining += 1
-    db.add(OilChangeLedger(customer_id=customer_id, delta=+1, note=note))
+    if not plan:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+free+oil+changes", status_code=303)
+    
+    # Update the plan - remaining can be negative
+    plan.remaining = remaining
+    # Keep total_allowed in sync with remaining for now (or set to 0 if negative)
+    plan.total_allowed = max(0, remaining)
+    db.commit()
+    
+    return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
+
+@app.post("/ui/customer/{customer_id}/add-oil-changes")
+def ui_add_oil_changes(
+    customer_id: int,
+    quantity: int = Form(...),
+    reason: str = Form(...),
+    service_date: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
+    if not plan:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+free+oil+changes", status_code=303)
+    
+    if quantity <= 0:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Quantity+must+be+greater+than+zero", status_code=303)
+    
+    plan.remaining += quantity
+    # Keep total_allowed in sync
+    plan.total_allowed = max(0, plan.remaining)
+    
+    # Parse the service date or use current date
+    try:
+        created_date = datetime.strptime(service_date, '%Y-%m-%d') if service_date else datetime.utcnow()
+    except ValueError:
+        return RedirectResponse(
+            f"/ui/customer/{customer_id}?error=Invalid+date+format.+Use+YYYY-MM-DD",
+            status_code=303
+        )
+
+    db.add(OilChangeLedger(
+        customer_id=customer_id,
+        delta=quantity,
+        note=f"Added {quantity} oil changes: {reason.strip()}",
+        created_at=created_date
+    ))
+    db.commit()
+    return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
+
+@app.post("/ui/customer/{customer_id}/add-four")
+def ui_add_four(
+    customer_id: int,
+    vehicle_id: int = Form(...),
+    service_date: str = Form(None),
+    db: Session = Depends(get_db)
+):
+    # Verify vehicle exists and belongs to customer
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle or vehicle.customer_id != customer_id:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+vehicle", status_code=303)
+
+    plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
+    if not plan:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+free+oil+changes", status_code=303)
+    
+    plan.total_allowed += 4
+    plan.remaining += 4
+    # Parse the service date or use current date
+    try:
+        created_date = datetime.strptime(service_date, '%Y-%m-%d') if service_date else datetime.utcnow()
+    except ValueError:
+        return RedirectResponse(
+            f"/ui/customer/{customer_id}?error=Invalid+date+format.+Use+YYYY-MM-DD",
+            status_code=303
+        )
+
+    db.add(OilChangeLedger(
+        customer_id=customer_id,
+        vehicle_id=vehicle_id,
+        delta=+4,
+        note="Added 4 oil changes (tire purchase)",
+        created_at=created_date
+    ))
     db.commit()
     return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
 
@@ -132,7 +357,7 @@ def ui_new_customer(first_name: str = Form(...), last_name: str = Form(...), pho
         db.flush()  # This will assign the ID
         print(f"Created customer with ID: {c.id}")  # Debug print
         
-        plan = OilChangePlan(customer_id=c.id, total_allowed=4, remaining=4, active=True)
+        plan = OilChangePlan(customer_id=c.id, total_allowed=0, remaining=0, active=True)
         db.add(plan)
         db.commit()
         db.refresh(c)
@@ -151,15 +376,256 @@ async def ui_add_vehicle(customer_id: int, plate: str = Form(""), year: str = Fo
     return RedirectResponse(f"/vehicles/ui/add?customer_id={customer_id}&plate={plate}&year={year}&make={make}&model={model}&vin={vin}", status_code=303)
 
 @app.get("/vehicles/ui/add", response_class=HTMLResponse)
-async def vehicles_ui_add(request: Request, customer_id: int, plate: str = "", year: str = "", make: str = "", model: str = "", vin: str = "", db: Session = Depends(get_db)):
-    from .services.plate_lookup import plate_to_vin
-    if not vin and plate:
-        looked = await plate_to_vin(plate)
-        if looked:
-            vin = looked
-    v = Vehicle(customer_id=customer_id, plate=plate.upper(), year=year, make=make, model=model, vin=vin)
-    db.add(v); db.commit(); db.refresh(v)
+async def vehicles_ui_add(request: Request, customer_id: int, plate: str = "", year: str = "", make: str = "", model: str = "", vin: str = "", force: bool = False, db: Session = Depends(get_db)):
+    print(f"Vehicle add request: customer_id={customer_id}, plate='{plate}', year='{year}', make='{make}', model='{model}', vin='{vin}', force={force}")
+    
+    # Check for potential duplicates unless force=True
+    if not force:
+        duplicates = find_duplicate_vehicles(db, vin, plate, year, make, model)
+        print(f"Found {len(duplicates)} potential duplicates")
+        if duplicates:
+            # Show duplicate warning page
+            customer = db.get(Customer, customer_id)
+            print(f"Showing duplicate warning for customer: {customer.name if customer else 'None'}")
+            return templates.TemplateResponse("duplicate_warning.html", {
+                "request": request,
+                "customer": customer,
+                "new_vehicle": {
+                    "plate": plate,
+                    "vin": vin,
+                    "year": year,
+                    "make": make,
+                    "model": model
+                },
+                "duplicates": duplicates
+            })
+    
+    # No duplicates found or force=True, create the vehicle
+    print(f"Creating new vehicle for customer {customer_id}")
+    v = Vehicle(customer_id=customer_id, plate=plate.upper(), year=year, make=make, model=model, vin=vin.upper())
+    db.add(v)
+    db.commit()
+    db.refresh(v)
     return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
+
+@app.post("/admin/link-customer-to-vehicle")
+async def link_customer_to_vehicle(
+    customer_id: int = Form(...),
+    vehicle_id: int = Form(...),
+    existing_customer_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Merge customers and link to existing vehicle"""
+    try:
+        # Get the entities
+        new_customer = db.get(Customer, customer_id)
+        vehicle = db.get(Vehicle, vehicle_id)
+        existing_customer = db.get(Customer, existing_customer_id)
+        
+        if not new_customer or not vehicle or not existing_customer:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+customer+or+vehicle", status_code=303)
+        
+        print(f"Merging customer {new_customer.name} (ID: {customer_id}) into {existing_customer.name} (ID: {existing_customer_id})")
+        
+        # Merge customer information - combine names and phone numbers intelligently
+        existing_full_name = existing_customer.name.strip()
+        new_full_name = new_customer.name.strip()
+        
+        # Only combine if the names are actually different
+        if existing_full_name.lower() != new_full_name.lower():
+            combined_name = f"{existing_full_name} / {new_full_name}"
+        else:
+            combined_name = existing_full_name
+        
+        # Split the combined name back into first and last for storage
+        # For display purposes, we'll store the combined name in first_name and clear last_name
+        existing_customer.first_name = combined_name
+        existing_customer.last_name = ""
+        
+        # Combine phone numbers only if they're different
+        combined_phone = existing_customer.phone
+        if new_customer.phone and new_customer.phone.strip() and new_customer.phone != existing_customer.phone:
+            if existing_customer.phone:
+                combined_phone = f"{existing_customer.phone} / {new_customer.phone}"
+            else:
+                combined_phone = new_customer.phone
+        
+        existing_customer.phone = combined_phone
+        db.add(existing_customer)
+        
+        # Move all vehicles from new customer to existing customer (except duplicates)
+        new_customer_vehicles = db.query(Vehicle).filter_by(customer_id=customer_id).all()
+        for v in new_customer_vehicles:
+            v.customer_id = existing_customer_id
+            db.add(v)
+        
+        # Move all oil change plans from new customer to existing customer
+        new_customer_plans = db.query(OilChangePlan).filter_by(customer_id=customer_id).all()
+        for plan in new_customer_plans:
+            plan.customer_id = existing_customer_id
+            db.add(plan)
+        
+        # Move all oil change ledger entries from new customer to existing customer
+        new_customer_ledger = db.query(OilChangeLedger).filter_by(customer_id=customer_id).all()
+        for entry in new_customer_ledger:
+            entry.customer_id = existing_customer_id
+            db.add(entry)
+        
+        # Delete the old customer record
+        db.delete(new_customer)
+        
+        # Add a note to track this merge in the ledger
+        from datetime import datetime
+        merge_entry = OilChangeLedger(
+            customer_id=existing_customer_id,
+            vehicle_id=vehicle_id,
+            delta=0,  # No oil change impact
+            note=f"Customer records merged: {new_customer.name} merged into this account",
+            created_at=datetime.now()
+        )
+        db.add(merge_entry)
+        
+        db.commit()
+        
+        return RedirectResponse(f"/ui/customer/{existing_customer_id}?success=Customers+successfully+merged", status_code=303)
+        
+    except Exception as e:
+        print(f"Error merging customers: {str(e)}")
+        db.rollback()
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Error+merging+customers:+{str(e)}", status_code=303)
+
+@app.get("/admin/duplicates", response_class=HTMLResponse)
+async def admin_duplicates(request: Request, db: Session = Depends(get_db)):
+    """Admin page for finding and managing potential duplicate customers/vehicles"""
+    
+    # Find potential customer duplicates (by phone or similar names)
+    customers = db.query(Customer).all()
+    customer_duplicates = []
+    
+    # Group customers by phone number
+    phone_groups = {}
+    for customer in customers:
+        normalized_phone = customer.phone.replace('-', '').replace('(', '').replace(')', '').replace(' ', '') if customer.phone else ''
+        if normalized_phone and len(normalized_phone) >= 10:
+            if normalized_phone not in phone_groups:
+                phone_groups[normalized_phone] = []
+            phone_groups[normalized_phone].append(customer)
+    
+    # Find phone groups with multiple customers
+    for phone, customer_list in phone_groups.items():
+        if len(customer_list) > 1:
+            customer_duplicates.append({
+                'type': 'phone',
+                'phone': phone,
+                'customers': customer_list,
+                'vehicles': [db.query(Vehicle).filter_by(customer_id=c.id).all() for c in customer_list]
+            })
+    
+    # Find potential vehicle duplicates
+    vehicles = db.query(Vehicle).all()
+    vehicle_duplicates = []
+    
+    # Group by VIN
+    vin_groups = {}
+    for vehicle in vehicles:
+        if vehicle.vin and vehicle.vin.strip():
+            vin = vehicle.vin.strip().upper()
+            if vin not in vin_groups:
+                vin_groups[vin] = []
+            vin_groups[vin].append(vehicle)
+    
+    for vin, vehicle_list in vin_groups.items():
+        if len(vehicle_list) > 1:
+            vehicle_duplicates.append({
+                'type': 'vin',
+                'vin': vin,
+                'vehicles': vehicle_list,
+                'customers': [db.get(Customer, v.customer_id) for v in vehicle_list]
+            })
+    
+    # Group by license plate
+    plate_groups = {}
+    for vehicle in vehicles:
+        if vehicle.plate and vehicle.plate.strip():
+            plate = vehicle.plate.strip().upper()
+            if plate not in plate_groups:
+                plate_groups[plate] = []
+            plate_groups[plate].append(vehicle)
+    
+    for plate, vehicle_list in plate_groups.items():
+        if len(vehicle_list) > 1:
+            # Skip if already found by VIN
+            if not any(d['type'] == 'vin' and any(v.id in [veh.id for veh in d['vehicles']] for v in vehicle_list) for d in vehicle_duplicates):
+                vehicle_duplicates.append({
+                    'type': 'plate',
+                    'plate': plate,
+                    'vehicles': vehicle_list,
+                    'customers': [db.get(Customer, v.customer_id) for v in vehicle_list]
+                })
+    
+    return templates.TemplateResponse("admin_duplicates.html", {
+        "request": request,
+        "customer_duplicates": customer_duplicates,
+        "vehicle_duplicates": vehicle_duplicates
+    })
+
+@app.post("/admin/merge-customers")
+async def admin_merge_customers(
+    primary_customer_id: int = Form(...),
+    secondary_customer_id: int = Form(...),
+    db: Session = Depends(get_db)
+):
+    """Merge two customer accounts - move all data from secondary to primary"""
+    try:
+        primary = db.get(Customer, primary_customer_id)
+        secondary = db.get(Customer, secondary_customer_id)
+        
+        if not primary or not secondary:
+            return RedirectResponse("/admin/duplicates?error=Invalid+customer+IDs", status_code=303)
+        
+        # Move all vehicles from secondary to primary
+        vehicles = db.query(Vehicle).filter_by(customer_id=secondary_customer_id).all()
+        for vehicle in vehicles:
+            vehicle.customer_id = primary_customer_id
+            db.add(vehicle)
+        
+        # Move all oil change ledger entries from secondary to primary
+        ledger_entries = db.query(OilChangeLedger).filter_by(customer_id=secondary_customer_id).all()
+        for entry in ledger_entries:
+            entry.customer_id = primary_customer_id
+            db.add(entry)
+        
+        # Move oil change plan from secondary to primary (if primary doesn't have one)
+        primary_plan = db.query(OilChangePlan).filter_by(customer_id=primary_customer_id, active=True).first()
+        secondary_plan = db.query(OilChangePlan).filter_by(customer_id=secondary_customer_id, active=True).first()
+        
+        if secondary_plan and not primary_plan:
+            secondary_plan.customer_id = primary_customer_id
+            db.add(secondary_plan)
+        elif secondary_plan and primary_plan:
+            # Combine the remaining oil changes
+            primary_plan.remaining += secondary_plan.remaining
+            secondary_plan.active = False
+            db.add(primary_plan)
+            db.add(secondary_plan)
+        
+        # Add a note about the merge
+        merge_note = OilChangeLedger(
+            customer_id=primary_customer_id,
+            delta=0,
+            note=f"Customer accounts merged: {secondary.name} ({secondary.phone}) merged into {primary.name} ({primary.phone})"
+        )
+        db.add(merge_note)
+        
+        # Delete the secondary customer
+        db.delete(secondary)
+        db.commit()
+        
+        return RedirectResponse(f"/admin/duplicates?success=Successfully+merged+{secondary.name}+into+{primary.name}", status_code=303)
+        
+    except Exception as e:
+        db.rollback()
+        return RedirectResponse(f"/admin/duplicates?error=Error+merging+customers:+{str(e)}", status_code=303)
 
 
 @app.get("/info")
@@ -179,6 +645,27 @@ def advisor_run():
     json_path, html_path = run_once(days=30)
     return {"ok": True, "json_report": json_path, "html_report": html_path}
 
+
+@app.post("/ui/customer/{customer_id}/ledger/{entry_id}/delete")
+def ui_delete_ledger_entry(customer_id: int, entry_id: int, db: Session = Depends(get_db)):
+    # Get the ledger entry
+    entry = db.get(OilChangeLedger, entry_id)
+    if not entry or entry.customer_id != customer_id:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Entry+not+found", status_code=303)
+    
+    # Get the active plan
+    plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
+    if not plan:
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+free+oil+changes", status_code=303)
+    
+    # Update the plan's remaining count (reverse the original delta)
+    plan.remaining -= entry.delta  # Subtract because we're reversing: -(-1) = +1 for deletion of use, -(+1) = -1 for deletion of restore
+    
+    # Delete the entry
+    db.delete(entry)
+    db.commit()
+    
+    return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
 
 @app.get('/healthz')
 def healthz():

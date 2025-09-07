@@ -7,3 +7,4 @@
 {"ts": "2025-08-31T01:28:34Z", "action": "spec_lookup", "entity": "vehicle", "user": "", "details": {"vehicle_id": 1}}
 {"ts": "2025-08-31T01:28:59Z", "action": "spec_lookup", "entity": "vehicle", "user": "", "details": {"vehicle_id": 1}}
 {"ts": "2025-08-31T01:30:31Z", "action": "spec_lookup", "entity": "vehicle", "user": "", "details": {"vehicle_id": 1}}
+{"ts": "2025-09-06T22:31:55Z", "action": "spec_lookup", "entity": "vehicle", "user": "", "details": {"vehicle_id": 1}}

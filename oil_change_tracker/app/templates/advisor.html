@@ -12,7 +12,7 @@
     <ul class="mb-2">
       <li>Total searches: <strong>{{ metrics.search_total }}</strong> (no result: {{ metrics.search_no_result }} → {{ (metrics.search_no_result_rate*100)|round(0) }}%)</li>
       <li>Oil change deducts: <strong>{{ metrics.deducts }}</strong>, restores: <strong>{{ metrics.restores }}</strong> (restore ratio: {{ (metrics.restore_ratio*100)|round(0) }}%)</li>
-      <li>Vehicles added: <strong>{{ metrics.vehicles_added }}</strong>, spec lookups: <strong>{{ metrics.spec_lookups }}</strong></li>
+      <li>Vehicles added: <strong>{{ metrics.vehicles_added }}</strong></li>
     </ul>
     {% if metrics.top_search_terms %}
       <h6 class="mt-3">Top search terms</h6>

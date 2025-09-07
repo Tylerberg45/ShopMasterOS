@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Duplicate Management</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        .duplicate-group {
+            border: 2px solid #dc3545;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .customer-info {
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 10px 0;
+        }
+        .vehicle-info {
+            background-color: #e7f3ff;
+            padding: 10px;
+            border-radius: 4px;
+            margin: 5px 0;
+            font-size: 0.9em;
+        }
+        .alert-header {
+            background-color: #dc3545;
+            color: white;
+            padding: 10px 15px;
+            margin: 0;
+            font-weight: bold;
+        }
+        .merge-section {
+            background-color: #fff3cd;
+            padding: 15px;
+            border-radius: 6px;
+            margin-top: 15px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-fluid py-4">
+        <!-- Header -->
+        <div class="row mb-4">
+            <div class="col-12">
+                <div class="d-flex justify-content-between align-items-center">
+                    <h2><i class="fas fa-users-cog"></i> Admin - Duplicate Management</h2>
+                    <a href="/ui" class="btn btn-secondary">
+                        <i class="fas fa-home"></i> Back to Dashboard
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <!-- Status Messages -->
+        {% if request.query_params.get('success') %}
+        <div class="alert alert-success alert-dismissible fade show" role="alert">
+            <i class="fas fa-check-circle"></i> {{ request.query_params.get('success') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+
+        {% if request.query_params.get('error') %}
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="fas fa-exclamation-triangle"></i> {{ request.query_params.get('error') }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+        {% endif %}
+
+        <!-- Customer Duplicates Section -->
+        {% if customer_duplicates %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h3><i class="fas fa-user-friends text-warning"></i> Potential Customer Duplicates</h3>
+                <p class="text-muted">Customers with the same phone number or similar information</p>
+                
+                {% for duplicate in customer_duplicates %}
+                <div class="duplicate-group">
+                    <div class="alert-header">
+                        <i class="fas fa-exclamation-triangle"></i> 
+                        Duplicate Phone Number: {{ duplicate.phone }}
+                    </div>
+                    
+                    <div class="p-3">
+                        <div class="row">
+                            {% for i, customer in enumerate(duplicate.customers) %}
+                            <div class="col-md-6">
+                                <div class="customer-info">
+                                    <h5>Customer {{ i + 1 }}: {{ customer.name }}</h5>
+                                    <p class="mb-1"><i class="fas fa-phone"></i> {{ customer.phone }}</p>
+                                    <p class="mb-1"><i class="fas fa-calendar"></i> Created: {{ customer.created_at.strftime('%m/%d/%Y') if customer.created_at else 'Unknown' }}</p>
+                                    
+                                    <!-- Show vehicles for this customer -->
+                                    {% if duplicate.vehicles[i] %}
+                                    <h6 class="mt-2">Vehicles:</h6>
+                                    {% for vehicle in duplicate.vehicles[i] %}
+                                    <div class="vehicle-info">
+                                        <strong>{{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}</strong><br>
+                                        {% if vehicle.plate %}Plate: {{ vehicle.plate }}<br>{% endif %}
+                                        {% if vehicle.vin %}VIN: {{ vehicle.vin }}<br>{% endif %}
+                                        Color: {{ vehicle.color or 'Not specified' }}
+                                    </div>
+                                    {% endfor %}
+                                    {% else %}
+                                    <p class="text-muted">No vehicles</p>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <!-- Merge Options -->
+                        {% if duplicate.customers|length == 2 %}
+                        <div class="merge-section">
+                            <h6><i class="fas fa-compress-alt"></i> Merge Customers</h6>
+                            <p class="mb-2">Choose which customer record to keep (the other will be deleted):</p>
+                            
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <form method="post" action="/admin/merge-customers" class="d-inline">
+                                        <input type="hidden" name="primary_customer_id" value="{{ duplicate.customers[0].id }}">
+                                        <input type="hidden" name="secondary_customer_id" value="{{ duplicate.customers[1].id }}">
+                                        <button type="submit" class="btn btn-warning btn-sm" 
+                                                onclick="return confirm('This will merge {{ duplicate.customers[1].name }} into {{ duplicate.customers[0].name }} and delete the duplicate. Continue?')">
+                                            <i class="fas fa-arrow-left"></i> Keep {{ duplicate.customers[0].name }}
+                                        </button>
+                                    </form>
+                                </div>
+                                <div class="col-md-6">
+                                    <form method="post" action="/admin/merge-customers" class="d-inline">
+                                        <input type="hidden" name="primary_customer_id" value="{{ duplicate.customers[1].id }}">
+                                        <input type="hidden" name="secondary_customer_id" value="{{ duplicate.customers[0].id }}">
+                                        <button type="submit" class="btn btn-warning btn-sm" 
+                                                onclick="return confirm('This will merge {{ duplicate.customers[0].name }} into {{ duplicate.customers[1].name }} and delete the duplicate. Continue?')">
+                                            Keep {{ duplicate.customers[1].name }} <i class="fas fa-arrow-right"></i>
+                                        </button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Vehicle Duplicates Section -->
+        {% if vehicle_duplicates %}
+        <div class="row mb-5">
+            <div class="col-12">
+                <h3><i class="fas fa-car text-danger"></i> Vehicle Duplicates</h3>
+                <p class="text-muted">Vehicles with matching VIN numbers or license plates</p>
+                
+                {% for duplicate in vehicle_duplicates %}
+                <div class="duplicate-group">
+                    <div class="alert-header">
+                        <i class="fas fa-exclamation-triangle"></i> 
+                        Duplicate {{ duplicate.type.upper() }}: 
+                        {{ duplicate.vin if duplicate.type == 'vin' else duplicate.plate }}
+                    </div>
+                    
+                    <div class="p-3">
+                        <div class="row">
+                            {% for i, vehicle in enumerate(duplicate.vehicles) %}
+                            <div class="col-md-6">
+                                <div class="customer-info">
+                                    <h5>Vehicle {{ i + 1 }}: {{ vehicle.year }} {{ vehicle.make }} {{ vehicle.model }}</h5>
+                                    <p class="mb-1"><i class="fas fa-palette"></i> Color: {{ vehicle.color or 'Not specified' }}</p>
+                                    {% if vehicle.plate %}<p class="mb-1"><i class="fas fa-id-card"></i> Plate: {{ vehicle.plate }}</p>{% endif %}
+                                    {% if vehicle.vin %}<p class="mb-1"><i class="fas fa-barcode"></i> VIN: {{ vehicle.vin }}</p>{% endif %}
+                                    
+                                    <hr>
+                                    <h6>Owner: {{ duplicate.customers[i].name }}</h6>
+                                    <p class="mb-0"><i class="fas fa-phone"></i> {{ duplicate.customers[i].phone }}</p>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        
+                        <div class="merge-section">
+                            <h6><i class="fas fa-info-circle"></i> Resolution Options</h6>
+                            <p>Vehicle duplicates typically indicate:</p>
+                            <ul class="mb-2">
+                                <li>Same vehicle registered under different customers (family members)</li>
+                                <li>Data entry errors (typos in VIN/plate)</li>
+                                <li>Vehicle ownership transfer</li>
+                            </ul>
+                            <p><strong>Recommended action:</strong> Review with customer to determine correct ownership and merge customer accounts if needed.</p>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- No Duplicates Message -->
+        {% if not customer_duplicates and not vehicle_duplicates %}
+        <div class="row">
+            <div class="col-12">
+                <div class="alert alert-success text-center">
+                    <i class="fas fa-check-circle fa-2x mb-2"></i>
+                    <h4>No Duplicates Found!</h4>
+                    <p class="mb-0">Your customer and vehicle database appears to be clean with no obvious duplicates.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

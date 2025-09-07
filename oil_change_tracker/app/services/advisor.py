@@ -41,7 +41,6 @@ def compute_metrics(days: int = 30):
     deducts = [e for e in evts if e["action"] == "deduct"]
     restores = [e for e in evts if e["action"] == "restore"]
     vehicles_added = [e for e in evts if e["action"] == "vehicle_add"]
-    specs_lookups = [e for e in evts if e["action"] == "spec_lookup"]
 
     metrics = {
         "window_days": days,
@@ -54,7 +53,6 @@ def compute_metrics(days: int = 30):
         "restores": len(restores),
         "restore_ratio": (len(restores) / len(deducts)) if deducts else 0.0,
         "vehicles_added": len(vehicles_added),
-        "spec_lookups": len(specs_lookups),
     }
     return metrics
 
@@ -66,11 +64,9 @@ def generate_advice(metrics: dict):
     # Rule: high restore ratio (possible mis-clicks)
     if metrics["deducts"] >= 10 and metrics["restore_ratio"] > 0.2:
         tips.append("More than 20% of oil change deductions were restored. Consider staff refresher or confirm dialog on deduct.")
-    # Rule: vehicles added but few spec lookups
-    if metrics["vehicles_added"] >= 10 and metrics["spec_lookups"] < (0.4 * metrics["vehicles_added"]):
-        tips.append("Many vehicles added but few oil spec lookups. Add more entries to the local oil_specs.json or review workflow.")
+    
     if not tips:
-        tips.append("System usage looks healthy. Keep building your local oil spec table for instant lookups.")
+        tips.append("System usage looks healthy.")
     return tips
 
 def save_report(metrics: dict, tips: list[str]):
@@ -91,7 +87,7 @@ def save_report(metrics: dict, tips: list[str]):
     html.append("<ul>")
     html.append(f"<li>Total searches: {metrics['search_total']} (no result: {metrics['search_no_result']} → {metrics['search_no_result_rate']:.0%})</li>")
     html.append(f"<li>Oil change deducts: {metrics['deducts']}, restores: {metrics['restores']} (restore ratio: {metrics['restore_ratio']:.0%})</li>")
-    html.append(f"<li>Vehicles added: {metrics['vehicles_added']}, spec lookups: {metrics['spec_lookups']}</li>")
+    html.append(f"<li>Vehicles added: {metrics['vehicles_added']}</li>")
     html.append("</ul>")
     if metrics.get("top_search_terms"):
         html.append("<h3>Top search terms</h3><ol>")

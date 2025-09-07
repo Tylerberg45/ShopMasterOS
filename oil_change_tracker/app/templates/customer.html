@@ -6,24 +6,19 @@
   <div class="muted mb-2">Phone: {{ c.phone }}</div>
 </div>
 
-<div class="card mb-4">
+  <div class="card mb-4">
   <div class="card-body">
-    <h4 class="card-title">Oil Change Plan</h4>
+    <h4 class="card-title">Free Oil Changes</h4>
     {% if plan %}
-      <div class="mb-2">
-        <span class="pill">Total: {{ plan.total_allowed }}</span>
-        <span class="pill ms-2">Remaining: {{ plan.remaining }}</span>
+      <div class="mb-3">
+        <span class="pill">Remaining: {{ plan.remaining }}</span>
+        <form method="post" action="/ui/customer/{{ c.id }}/add-four" class="d-inline ms-3">
+          <button class="btn btn-success" type="button" onclick="promptAddOilChanges()">Add Oil Changes</button>
+        </form>
+        <button class="btn btn-outline-primary ms-2" onclick="openEditPlan({{ plan.remaining }})">Edit Free Oil Changes</button>
       </div>
-      <form method="post" action="/ui/customer/{{ c.id }}/deduct" class="d-inline" onsubmit="return confirm('Deduct one oil change from {{ c.first_name }} {{ c.last_name }}?')">
-        <input name="note" class="form-control d-inline w-auto" placeholder="Note" value="Oil change used">
-        <button class="btn btn-warning ms-1" type="submit">Deduct (−1)</button>
-      </form>
-      <form method="post" action="/ui/customer/{{ c.id }}/restore" class="d-inline ms-2">
-        <input name="note" class="form-control d-inline w-auto" placeholder="Note" value="Restored oil change">
-        <button class="btn btn-success ms-1" type="submit">Restore (+1)</button>
-      </form>
     {% else %}
-      <div class="text-danger">No active plan.</div>
+      <div class="text-danger">No active free oil changes.</div>
     {% endif %}
   </div>
 </div>
@@ -32,7 +27,13 @@
   <h4>Vehicles</h4>
   <table class="table table-striped align-middle">
     <thead>
-      <tr><th>Plate</th><th>VIN</th><th>Year</th><th>Make</th><th>Model</th><th>Oil Spec</th><th>Action</th></tr>
+      <tr>
+        <th>Plate</th><th>VIN</th>
+        <th>Year</th><th>Make</th><th>Model</th>
+        <th>Default Oil</th>
+        <th>Oil Changes Used</th>
+        <th>Actions</th>
+      </tr>
     </thead>
     <tbody>
     {% for v in vehicles %}
@@ -42,14 +43,24 @@
         <td>{{ v.year }}</td>
         <td>{{ v.make }}</td>
         <td>{{ v.model }}</td>
-        <td>{{ v.oil_type }} {% if v.oil_capacity_quarts %} ({{ v.oil_capacity_quarts }} qt){% endif %}</td>
         <td>
-          <form method="post" action="/vehicles/{{ v.id }}/refresh_specs" class="d-inline">
-            <button class="btn btn-outline-info btn-sm" type="submit">Lookup</button>
-          </form>
-          <button class="btn btn-outline-primary btn-sm ms-1" onclick="openEditVehicle({{ v.id }}, '{{ v.plate }}', '{{ v.vin }}', '{{ v.year }}', '{{ v.make }}', '{{ v.model }}')">Edit</button>
+          {% if v.oil_weight %}{{ v.oil_weight }}{% endif %}
+          {% if v.oil_capacity_quarts %} ({{ v.oil_capacity_quarts }} qt){% endif %}
+        </td>
+        <td>{{ vehicle_oil_changes[v.id] }}</td>
+        <td>
+          <div class="d-flex gap-1">
+            <button class="btn btn-warning btn-sm flex-fill" onclick="openUseOilChangeModal({{ v.id }}, '{{ v.year }} {{ v.make }} {{ v.model }}', {{ vehicle_last_mileage[v.id] }})" 
+                    title="Use 1 oil change - requires mileage">Use 1</button>
+            <button class="btn btn-success btn-sm flex-fill" onclick="openAddFourModal({{ v.id }}, '{{ v.year }} {{ v.make }} {{ v.model }}')" 
+                    title="Add 4 oil changes for tire purchase">Add 4</button>
+          </div>
+          
+          <div class="mt-1">
+            <button class="btn btn-outline-primary btn-sm w-100" onclick="openEditVehicle({{ v.id }}, '{{ v.plate }}', '{{ v.vin }}', '{{ v.year }}', '{{ v.make }}', '{{ v.model }}', '{{ v.oil_weight }}', '{{ v.oil_capacity_quarts }}')">Edit Vehicle</button>
+          </div>
           {% if request.query_params.error %}
-          <div class="text-danger">{{ request.query_params.error }}</div>
+          <div class="text-danger mt-1">{{ request.query_params.error }}</div>
           {% endif %}
         </td>
       </tr>
@@ -63,28 +74,44 @@
     <h5 class="card-title">Add Vehicle</h5>
     <form method="post" action="/ui/customer/{{ c.id }}/vehicle" class="row g-2 align-items-end">
       <div class="col-md-2"><input name="plate" class="form-control" placeholder="License plate"></div>
-      <div class="col-md-3"><input name="vin" class="form-control" placeholder="VIN (optional)"></div>
+      <div class="col-md-2"><input name="vin" class="form-control" placeholder="VIN (optional)"></div>
       <div class="col-md-2"><input name="year" class="form-control" placeholder="Year"></div>
       <div class="col-md-2"><input name="make" class="form-control" placeholder="Make"></div>
       <div class="col-md-2"><input name="model" class="form-control" placeholder="Model"></div>
-      <div class="col-md-1 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
+      <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
     </form>
-    <div class="muted mt-2">If VIN left blank and plate provided, the system will try to look it up (demo mode returns a sample VIN for plate <strong>TEST123</strong>).</div>
+    <div class="muted mt-2">Enter vehicle details manually.</div>
   </div>
 </div>
 
 <div class="mb-4">
-  <h4>Recent Activity</h4>
+  <h4>History</h4>
   <table class="table table-bordered table-sm">
     <thead>
-      <tr><th>When</th><th>Change</th><th>Note</th></tr>
+      <tr><th>Date</th><th>Change</th><th>Vehicle</th><th>Mileage</th><th>Note</th><th>Action</th></tr>
     </thead>
     <tbody>
     {% for e in ledger %}
       <tr>
-        <td>{{ e.created_at }}</td>
+        <td>{{ e.service_date.strftime('%m/%d/%Y') if e.service_date else (e.created_at.strftime('%m/%d/%Y') if e.created_at else 'N/A') }}</td>
         <td>{{ e.delta }}</td>
+        <td>{% if e.vehicle_id %}
+            {% for v in vehicles %}
+              {% if v.id == e.vehicle_id %}
+                {{ v.year }} {{ v.make }} {{ v.model }}{% if v.plate %} ({{ v.plate }}){% endif %}
+              {% endif %}
+            {% endfor %}
+            {% endif %}</td>
+        <td>{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
         <td>{{ e.note }}</td>
+        <td>
+          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" 
+                onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ abs(e.delta) }} oil change{% if abs(e.delta) != 1 %}s{% endif %}.')">
+            <button type="submit" class="btn btn-danger btn-sm">
+              <i class="bi bi-trash"></i> Remove
+            </button>
+          </form>
+        </td>
       </tr>
     {% endfor %}
     </tbody>
@@ -121,6 +148,73 @@
             <label for="editModel" class="form-label">Model</label>
             <input type="text" class="form-control" id="editModel" name="model">
           </div>
+          <div class="mb-3">
+            <label for="editOilWeight" class="form-label">Default Oil Weight</label>
+            <input type="text" class="form-control" id="editOilWeight" name="oil_weight" placeholder="e.g., 5W-30">
+          </div>
+          <div class="mb-3">
+            <label for="editOilCapacity" class="form-label">Default Oil Capacity (Quarts)</label>
+            <input type="number" step="0.1" class="form-control" id="editOilCapacity" name="oil_capacity_quarts" placeholder="e.g., 5.5">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Oil Changes Modal -->
+<div class="modal fade" id="addOilChangesModal" tabindex="-1" aria-labelledby="addOilChangesModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addOilChangesModalLabel">Add Free Oil Changes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="addOilChangesForm" method="post" action="/ui/customer/{{ c.id }}/add-oil-changes">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="addQuantity" class="form-label">Number of Oil Changes to Add</label>
+            <input type="number" class="form-control" id="addQuantity" name="quantity" min="1" value="4" required>
+          </div>
+          <div class="mb-3">
+            <label for="addReason" class="form-label">Reason</label>
+            <textarea class="form-control" id="addReason" name="reason" rows="3" placeholder="e.g., Customer satisfaction - oil filter came loose on 2024 Honda Civic" required></textarea>
+            <div class="form-text">Explain why these free oil changes are being added</div>
+          </div>
+          <div class="mb-3">
+            <label for="addServiceDate" class="form-label">Service Date</label>
+            <input type="date" class="form-control" id="addServiceDate" name="service_date" value="{{ today_date }}">
+            <div class="form-text">Defaults to today's date - change if backdating</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Add Oil Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Plan Modal -->
+<div class="modal fade" id="editPlanModal" tabindex="-1" aria-labelledby="editPlanModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editPlanModalLabel">Edit Free Oil Changes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="editPlanForm" method="post" action="/ui/customer/{{ c.id }}/edit-plan">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="editRemaining" class="form-label">Remaining Oil Changes</label>
+            <input type="number" class="form-control" id="editRemaining" name="remaining" required>
+            <div class="form-text">Can be negative if customer owes oil changes</div>
+          </div>
         </div>
         <div class="modal-footer">
           <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -148,8 +242,86 @@
   </div>
 </div>
 
+<!-- Use Oil Change Modal -->
+<div class="modal fade" id="useOilChangeModal" tabindex="-1" aria-labelledby="useOilChangeModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="useOilChangeModalLabel">Use Oil Change</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="useOilChangeForm" method="post" action="/ui/customer/{{ c.id }}/deduct">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="useVehicleInfo" class="form-label">Vehicle</label>
+            <input type="text" class="form-control" id="useVehicleInfo" readonly>
+            <input type="hidden" id="useVehicleId" name="vehicle_id">
+          </div>
+          <div class="mb-3">
+            <label for="useMileage" class="form-label">Current Mileage</label>
+            <input type="number" class="form-control" id="useMileage" name="mileage" required 
+                   oninput="if(this.value.length > 7) this.value = this.value.slice(0,7); validateMileage(this);">
+            <div id="mileageWarning" class="form-text text-warning" style="display: none;">
+              ⚠️ This mileage is less than the previous entry. Please double-check.
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="useServiceDate" class="form-label">Service Date</label>
+            <input type="date" class="form-control" id="useServiceDate" name="service_date" value="{{ today_date }}">
+            <div class="form-text">Defaults to today's date - change if backdating</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-warning">Use Oil Change</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<!-- Add Four Modal -->
+<div class="modal fade" id="addFourModal" tabindex="-1" aria-labelledby="addFourModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addFourModalLabel">Add 4 Oil Changes</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="addFourForm" method="post" action="/ui/customer/{{ c.id }}/add-four">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="addFourVehicleInfo" class="form-label">Vehicle</label>
+            <input type="text" class="form-control" id="addFourVehicleInfo" readonly>
+            <input type="hidden" id="addFourVehicleId" name="vehicle_id">
+          </div>
+          <div class="mb-3">
+            <label for="addFourServiceDate" class="form-label">Service Date</label>
+            <input type="date" class="form-control" id="addFourServiceDate" name="service_date" value="{{ today_date }}">
+            <div class="form-text">Defaults to today's date - change if backdating</div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-success">Add 4 Oil Changes</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
 <script>
-function openEditVehicle(id, plate, vin, year, make, model) {
+function validateDeductForm(form) {
+    const vehicle = form.vehicle_id.value;
+    const mileage = form.mileage.value;
+    if (!vehicle || !mileage) {
+        alert('Please select a vehicle and enter the current mileage.');
+        return false;
+    }
+    return confirm('Deduct one oil change for the selected vehicle?');
+}
+
+function openEditVehicle(id, plate, vin, year, make, model, oilWeight, oilCapacity) {
     const modal = new bootstrap.Modal(document.getElementById('editVehicleModal'));
     const form = document.getElementById('editVehicleForm');
     
@@ -162,6 +334,31 @@ function openEditVehicle(id, plate, vin, year, make, model) {
     document.getElementById('editYear').value = year;
     document.getElementById('editMake').value = make;
     document.getElementById('editModel').value = model;
+    document.getElementById('editOilWeight').value = oilWeight;
+    document.getElementById('editOilCapacity').value = oilCapacity;
+    
+    modal.show();
+}
+
+function openEditPlan(remaining) {
+    const modal = new bootstrap.Modal(document.getElementById('editPlanModal'));
+    
+    // Fill in the form field
+    document.getElementById('editRemaining').value = remaining;
+    
+    modal.show();
+}
+
+function promptAddOilChanges() {
+    const modal = new bootstrap.Modal(document.getElementById('addOilChangesModal'));
+    
+    // Reset form values
+    document.getElementById('addQuantity').value = '4';
+    document.getElementById('addReason').value = '';
+    
+    // Set today's date as default
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('addServiceDate').value = today;
     
     modal.show();
 }
@@ -178,6 +375,107 @@ document.addEventListener('DOMContentLoaded', function() {
         // Clean up the URL
         window.history.replaceState({}, document.title, window.location.pathname);
     }
+    
+    // Add form submission handler for mileage validation
+    document.getElementById('useOilChangeForm').addEventListener('submit', function(e) {
+        const mileageInput = document.getElementById('useMileage');
+        const currentMileage = parseInt(mileageInput.value);
+        const lastMileage = parseInt(mileageInput.getAttribute('data-last-mileage'));
+        
+        if (currentMileage && lastMileage && currentMileage < lastMileage) {
+            e.preventDefault();
+            if (confirm(`Warning: Current mileage (${currentMileage}) is less than previous mileage (${lastMileage}). Are you sure this is correct?`)) {
+                // Remove the event listener and submit again
+                this.removeEventListener('submit', arguments.callee);
+                this.submit();
+            }
+        }
+    });
 });
+
+function openUseOilChangeModal(vehicleId, vehicleInfo, lastMileage) {
+    document.getElementById('useVehicleId').value = vehicleId;
+    document.getElementById('useVehicleInfo').value = vehicleInfo;
+    document.getElementById('useMileage').value = '';
+    document.getElementById('useServiceDate').value = '{{ today_date }}';
+    
+    // Store last mileage for validation
+    document.getElementById('useMileage').setAttribute('data-last-mileage', lastMileage || 0);
+    
+    const modal = new bootstrap.Modal(document.getElementById('useOilChangeModal'));
+    modal.show();
+    
+    // Auto-focus on mileage input after modal is shown
+    document.getElementById('useOilChangeModal').addEventListener('shown.bs.modal', function () {
+        document.getElementById('useMileage').focus();
+    }, { once: true });
+}
+
+function openAddFourModal(vehicleId, vehicleInfo) {
+    document.getElementById('addFourVehicleId').value = vehicleId;
+    document.getElementById('addFourVehicleInfo').value = vehicleInfo;
+    document.getElementById('addFourServiceDate').value = '{{ today_date }}';
+    
+    const modal = new bootstrap.Modal(document.getElementById('addFourModal'));
+    modal.show();
+    
+    // Auto-focus on date input after modal is shown
+    document.getElementById('addFourModal').addEventListener('shown.bs.modal', function () {
+        document.getElementById('addFourServiceDate').focus();
+    }, { once: true });
+}
+
+function validateMileage(input) {
+    const currentMileage = parseInt(input.value);
+    const lastMileage = parseInt(input.getAttribute('data-last-mileage'));
+    const warningDiv = document.getElementById('mileageWarning');
+    
+    if (currentMileage && lastMileage && currentMileage < lastMileage) {
+        warningDiv.style.display = 'block';
+        input.classList.add('border-warning');
+    } else {
+        warningDiv.style.display = 'none';
+        input.classList.remove('border-warning');
+    }
+}
+
+function submitUseOilChange(vehicleId) {
+    const mileage = document.getElementById('mileage_' + vehicleId).value;
+    const serviceDate = document.getElementById('service_date_' + vehicleId).value;
+    
+    if (!mileage) {
+        alert('Mileage is required for using an oil change.');
+        return;
+    }
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/ui/customer/{{ c.id }}/deduct';
+    
+    form.innerHTML = `
+        <input type="hidden" name="vehicle_id" value="${vehicleId}">
+        <input type="hidden" name="mileage" value="${mileage}">
+        <input type="hidden" name="service_date" value="${serviceDate}">
+    `;
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+function submitAddFour(vehicleId) {
+    const serviceDate = document.getElementById('service_date_' + vehicleId).value;
+    
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/ui/customer/{{ c.id }}/add-four';
+    
+    form.innerHTML = `
+        <input type="hidden" name="vehicle_id" value="${vehicleId}">
+        <input type="hidden" name="service_date" value="${serviceDate}">
+    `;
+    
+    document.body.appendChild(form);
+    form.submit();
+}
 </script>
 {% endblock %}

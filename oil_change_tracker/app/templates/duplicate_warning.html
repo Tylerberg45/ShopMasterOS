@@ -1,0 +1,163 @@
+{% extends "layout.html" %}
+
+{% block title %}Potential Duplicate Vehicle Found{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="row justify-content-center">
+    <div class="col-md-10">
+      <div class="alert alert-warning">
+        <h4><i class="bi bi-exclamation-triangle"></i> Potential Duplicate Vehicle Detected</h4>
+        <p>We found existing vehicles that might be the same as the one you're trying to add.</p>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5>New Vehicle You're Adding</h5>
+        </div>
+        <div class="card-body">
+          <div class="row">
+            <div class="col-md-6">
+              <strong>Customer:</strong> {{ customer.name }}<br>
+              <strong>Phone:</strong> {{ customer.phone }}<br>
+            </div>
+            <div class="col-md-6">
+              <strong>Vehicle:</strong> {{ new_vehicle.year }} {{ new_vehicle.make }} {{ new_vehicle.model }}<br>
+              <strong>Plate:</strong> {{ new_vehicle.plate }}<br>
+              <strong>VIN:</strong> {{ new_vehicle.vin or 'Not provided' }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-header">
+          <h5>Potentially Matching Vehicles Found</h5>
+        </div>
+        <div class="card-body">
+          {% for duplicate in duplicates %}
+          <div class="border rounded p-3 mb-3 {% if duplicate.confidence == 'high' %}border-danger bg-danger-subtle{% else %}border-warning bg-warning-subtle{% endif %}">
+            <div class="row">
+              <div class="col-md-7">
+                <h6>
+                  <span class="badge {% if duplicate.confidence == 'high' %}bg-danger{% else %}bg-warning text-dark{% endif %}">
+                    {{ duplicate.match_reason }} ({{ duplicate.confidence }} confidence)
+                  </span>
+                </h6>
+                <div class="mb-2 p-2 bg-white rounded">
+                  <strong>🏷️ Existing Customer:</strong> <span class="text-primary fs-5">{{ duplicate.customer.name }}</span><br>
+                  <strong>📞 Phone:</strong> {{ duplicate.customer.phone }}<br>
+                </div>
+                <div class="mb-2 p-2 bg-white rounded">
+                  <strong>🚗 Vehicle:</strong> {{ duplicate.vehicle.year }} {{ duplicate.vehicle.make }} {{ duplicate.vehicle.model }}<br>
+                  <strong>🔖 Plate:</strong> {{ duplicate.vehicle.plate or 'Not provided' }}<br>
+                  <strong>🔍 VIN:</strong> {{ duplicate.vehicle.vin or 'Not provided' }}
+                </div>
+              </div>
+              <div class="col-md-5">
+                <div class="d-grid gap-2">
+                  <a href="/ui/customer/{{ duplicate.customer.id }}" class="btn btn-info btn-sm">
+                    <i class="bi bi-eye"></i> View {{ duplicate.customer.name }}'s Profile
+                  </a>
+                  
+                  <div class="small text-muted mb-2 p-2 bg-light rounded">
+                    <strong>Merge Action:</strong> This will combine both customer records. Names and phone numbers will be merged, and you'll be taken to the existing customer's account.
+                  </div>
+                  
+                  <form method="post" action="/admin/link-customer-to-vehicle" style="margin: 0;">
+                    <input type="hidden" name="customer_id" value="{{ customer.id }}">
+                    <input type="hidden" name="vehicle_id" value="{{ duplicate.vehicle.id }}">
+                    <input type="hidden" name="existing_customer_id" value="{{ duplicate.customer.id }}">
+                    <button type="submit" class="btn btn-success btn-sm fw-bold w-100" 
+                            style="border: 2px solid #198754;">
+                      <i class="bi bi-person-plus"></i> Merge {{ customer.name }} into {{ duplicate.customer.name }}'s Account
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h5 class="mb-0">🤔 What would you like to do?</h5>
+        </div>
+        <div class="card-body">
+          <div class="row g-3">
+            <div class="col-md-4">
+              <div class="d-grid">
+                <a href="/ui/customer/{{ customer.id }}" class="btn btn-outline-secondary btn-lg">
+                  <i class="bi bi-arrow-left"></i><br>
+                  <small>Cancel & Go Back</small>
+                </a>
+              </div>
+            </div>
+            <div class="col-md-8">
+              <div class="d-grid">
+                <a href="/vehicles/ui/add?customer_id={{ customer.id }}&plate={{ new_vehicle.plate }}&year={{ new_vehicle.year }}&make={{ new_vehicle.make }}&model={{ new_vehicle.model }}&vin={{ new_vehicle.vin }}&force=true" 
+                   class="btn btn-warning btn-lg fw-bold" 
+                   onclick="return confirm('⚠️ Are you sure you want to add this as a separate vehicle?\n\nThis may create duplicate records in your system.')">
+                  <i class="bi bi-plus-circle"></i><br>
+                  <small>Add Anyway (Create Separate Entry)</small>
+                </a>
+              </div>
+            </div>
+          </div>
+          
+          <div class="mt-3 p-3 bg-light rounded">
+            <h6 class="text-success">💡 Recommended Action:</h6>
+            <p class="mb-0 small">
+              Click one of the green <strong>"Link to [Name]'s Vehicle"</strong> buttons above if this is a shared family vehicle.
+              This will connect {{ customer.name }} to the existing vehicle record.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function linkToExisting(button) {
+  console.log('Link button clicked'); // Debug log
+  
+  const existingCustomerId = button.getAttribute('data-customer-id');
+  const vehicleId = button.getAttribute('data-vehicle-id');
+  const customerName = button.getAttribute('data-customer-name');
+  
+  console.log('Data attributes:', { existingCustomerId, vehicleId, customerName }); // Debug log
+  
+  if (confirm(`This will link {{ customer.name }} to ${customerName}'s vehicle. Both customers will be able to use oil changes for this vehicle. Continue?`)) {
+    console.log('User confirmed, creating form...'); // Debug log
+    
+    // Show loading state
+    button.innerHTML = '<i class="bi bi-hourglass-split"></i> Linking...';
+    button.disabled = true;
+    
+    // Create a form to submit the link request
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = '/admin/link-customer-to-vehicle';
+    form.style.display = 'none'; // Hide the form
+    
+    form.innerHTML = `
+      <input type="hidden" name="customer_id" value="{{ customer.id }}">
+      <input type="hidden" name="vehicle_id" value="${vehicleId}">
+      <input type="hidden" name="existing_customer_id" value="${existingCustomerId}">
+    `;
+    
+    console.log('Form HTML:', form.innerHTML); // Debug log
+    console.log('Form action:', form.action); // Debug log
+    
+    document.body.appendChild(form);
+    console.log('Form appended, submitting...'); // Debug log
+    form.submit();
+  } else {
+    console.log('User cancelled'); // Debug log
+  }
+}
+</script>
+{% endblock %}

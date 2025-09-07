@@ -20,8 +20,8 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     db.add(c)
     db.commit()
     db.refresh(c)
-    # auto assign plan
-    plan = OilChangePlan(customer_id=c.id, total_allowed=4, remaining=4, active=True)
+    # auto assign empty plan
+    plan = OilChangePlan(customer_id=c.id, total_allowed=0, remaining=0, active=True)
     db.add(plan)
     db.commit()
     return c
@@ -155,7 +155,7 @@ def import_customers(file: UploadFile = File(...), db: Session = Depends(get_db)
             c = Customer(first_name=first or "", last_name=last or "", phone=phone or "")
             db.add(c); db.commit(); db.refresh(c)
             # auto plan
-            plan = OilChangePlan(customer_id=c.id, total_allowed=4, remaining=4, active=True)
+            plan = OilChangePlan(customer_id=c.id, total_allowed=0, remaining=0, active=True)
             db.add(plan); db.commit()
             inserted += 1
 
