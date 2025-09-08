@@ -2,15 +2,6 @@
 {% block content %}
 <div class="mb-4">
   <h1 class="mb-2">Oil Change Tracker</h1>
-  <div class="alert alert-info">
-    <strong>Access URLs:</strong>
-    <div class="muted">Try these on other PCs in your shop network:</div>
-    <ul class="mb-1">
-      <li><code>http://{{ request.url.hostname or '127.0.0.1' }}:{{ request.url.port or 8000 }}</code> (this view)</li>
-      <li>Or use your PC name: <code>http://{{ request.url.hostname or 'YOUR_PC_NAME' }}:{{ request.url.port or 8000 }}</code></li>
-    </ul>
-    <div class="muted">You can also open <code>/info</code> for a JSON with suggested URLs.</div>
-  </div>
 </div>
 
 <form method="post" action="/ui/search" class="row g-3 mb-4 align-items-end">

@@ -49,6 +49,17 @@ class OilChangePlan(Base):
 
     customer = relationship("Customer", back_populates="plans")
 
+class VinOilSpec(Base):
+    """Store learned oil specifications for each VIN"""
+    __tablename__ = "vin_oil_specs"
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    vin: Mapped[str] = mapped_column(String(17), index=True, unique=True)
+    oil_weight: Mapped[str] = mapped_column(String(10), default="")
+    oil_capacity_quarts: Mapped[str] = mapped_column(String(10), default="")
+    oil_type: Mapped[str] = mapped_column(String(20), default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    usage_count: Mapped[int] = mapped_column(Integer, default=1)  # How many times this spec has been used
+
 class OilChangeLedger(Base):
     __tablename__ = "oil_change_ledger"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)

@@ -1,13 +1,26 @@
 from fastapi import APIRouter, Depends, HTTPException, Form
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
 from sqlalchemy.orm import Session
 from ..database import get_db
 from ..services.telemetry import log_event
+from ..services.nhtsa import decode_vin_vehicle_info, learn_oil_spec_from_vehicle
 from ..models.models import Vehicle, Customer
 from ..schemas import VehicleCreate, VehicleOut
 from typing import Optional
 
 router = APIRouter(prefix="/vehicles", tags=["vehicles"])
+
+@router.get("/lookup-vin/{vin}")
+async def lookup_vin(vin: str, db: Session = Depends(get_db)):
+    """Lookup vehicle information by VIN using NHTSA API and learned data"""
+    try:
+        vehicle_info = await decode_vin_vehicle_info(vin, db)
+        return JSONResponse(content={"success": True, "data": vehicle_info})
+    except Exception as e:
+        return JSONResponse(
+            content={"success": False, "error": str(e)}, 
+            status_code=500
+        )
 
 @router.post("/", response_model=VehicleOut)
 async def add_vehicle(payload: VehicleCreate, db: Session = Depends(get_db)):
@@ -28,6 +41,10 @@ async def add_vehicle(payload: VehicleCreate, db: Session = Depends(get_db)):
     db.add(v)
     db.commit()
     db.refresh(v)
+    
+    # Learn oil specifications from this vehicle for future use
+    learn_oil_spec_from_vehicle(db, v, update_existing=True)
+    
     return v
 
 @router.post("/{vehicle_id}/update")
@@ -57,6 +74,10 @@ async def update_vehicle(
         v.oil_capacity_quarts = oil_capacity_quarts.strip()
         db.add(v)
         db.commit()
+        
+        # Learn oil specifications from this vehicle for future use
+        learn_oil_spec_from_vehicle(db, v, update_existing=True)
+        
         return RedirectResponse(f"/ui/customer/{v.customer_id}", status_code=303)
     except Exception as e:
         db.rollback()

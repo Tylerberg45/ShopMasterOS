@@ -6,8 +6,13 @@ from typing import Iterator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-# 1) Read from env (Render sets this); fallback is a local file in the repo root.
+# 1) Read from env (Railway/Render sets this); fallback is a local file in the repo root.
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./oilchange.db").strip()
+
+# Handle Railway's PostgreSQL URL format if provided
+if DATABASE_URL.startswith("postgresql://"):
+    # Railway sometimes uses postgresql:// but SQLAlchemy prefers postgresql+psycopg2://
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+psycopg2://", 1)
 
 # 2) SQLite needs special connect args; others (Postgres, MySQL) don't.
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}

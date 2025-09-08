@@ -1,0 +1,20 @@
+{
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.scrollback": 10000,
+        "workbench.colorTheme": "Default Dark+",
+        "python.defaultInterpreterPath": "/usr/local/bin/python3"
+      }
+    }
+  },
+  "forwardPorts": [8000],
+  "portsAttributes": {
+    "8000": {
+      "label": "Oil Change Tracker",
+      "visibility": "public"
+    }
+  },
+  "postCreateCommand": "pip install -r oil_change_tracker/requirements.txt",
+  "postStartCommand": "echo '🚀 Codespace ready! Run: cd oil_change_tracker && python3 start_server.py'"
+}

@@ -1,6 +1,7 @@
 from fastapi import FastAPI, Request, Depends, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy import case, desc
@@ -12,7 +13,28 @@ from .services.phone import normalize_phone
 import re
 from urllib.parse import urlencode
 
+# Custom middleware for request logging
+class RequestLoggingMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = datetime.now()
+        
+        # Log the request
+        print(f"🌐 {request.method} {request.url.path}")
+        if request.query_params:
+            print(f"   📋 Query params: {dict(request.query_params)}")
+        if request.headers.get('referer'):
+            print(f"   🔗 Referer: {request.headers.get('referer')}")
+        
+        response = await call_next(request)
+        
+        # Log the response
+        duration = (datetime.now() - start_time).total_seconds() * 1000
+        print(f"   ✅ {response.status_code} ({duration:.1f}ms)")
+        
+        return response
+
 app = FastAPI(title="Oil Change Tracker (MVP)")
+app.add_middleware(RequestLoggingMiddleware)
 templates = Jinja2Templates(directory="app/templates")
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
@@ -51,6 +73,23 @@ def _ensure_vehicle_columns():
             for stmt in ledger_alters:
                 conn.exec_driver_sql(stmt)
             
+            # Create VIN oil specs table if it doesn't exist
+            try:
+                conn.exec_driver_sql("""
+                    CREATE TABLE IF NOT EXISTS vin_oil_specs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        vin VARCHAR(17) UNIQUE NOT NULL,
+                        oil_weight VARCHAR(10) DEFAULT '',
+                        oil_capacity_quarts VARCHAR(10) DEFAULT '',
+                        oil_type VARCHAR(20) DEFAULT '',
+                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        usage_count INTEGER DEFAULT 1
+                    )
+                """)
+                conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vin_oil_specs_vin ON vin_oil_specs(vin)")
+            except Exception as e:
+                print(f"Error creating vin_oil_specs table: {e}")
+            
             conn.commit()
     except Exception:
         # ignore on non-SQLite or if table doesn't exist yet
@@ -69,6 +108,9 @@ def get_abs(value):
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    print(f"🏠 HOME PAGE REQUEST: {request.method} {request.url}")
+    print(f"📍 User-Agent: {request.headers.get('user-agent', 'Unknown')}")
+    print(f"🔗 Referer: {request.headers.get('referer', 'Direct access')}")
     return templates.TemplateResponse("home.html", {"request": request})
 
 @app.post("/ui/search", response_class=HTMLResponse)
@@ -498,6 +540,10 @@ async def link_customer_to_vehicle(
 async def admin_duplicates(request: Request, db: Session = Depends(get_db)):
     """Admin page for finding and managing potential duplicate customers/vehicles"""
     
+    print(f"🔧 ADMIN DUPLICATES REQUEST: {request.method} {request.url}")
+    print(f"📍 User-Agent: {request.headers.get('user-agent', 'Unknown')}")
+    print(f"🔗 Referer: {request.headers.get('referer', 'Direct access')}")
+    
     # Find potential customer duplicates (by phone or similar names)
     customers = db.query(Customer).all()
     customer_duplicates = []
@@ -670,3 +716,13 @@ def ui_delete_ledger_entry(customer_id: int, entry_id: int, db: Session = Depend
 @app.get('/healthz')
 def healthz():
     return {'ok': True}
+
+@app.get('/health')
+def health():
+    """Health check endpoint for Railway deployment"""
+    return {
+        'status': 'healthy',
+        'service': 'Oil Change Tracker',
+        'timestamp': datetime.now().isoformat(),
+        'version': '1.0.0'
+    }

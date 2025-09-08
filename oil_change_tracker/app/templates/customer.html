@@ -74,13 +74,18 @@
     <h5 class="card-title">Add Vehicle</h5>
     <form method="post" action="/ui/customer/{{ c.id }}/vehicle" class="row g-2 align-items-end">
       <div class="col-md-2"><input name="plate" class="form-control" placeholder="License plate"></div>
-      <div class="col-md-2"><input name="vin" class="form-control" placeholder="VIN (optional)"></div>
-      <div class="col-md-2"><input name="year" class="form-control" placeholder="Year"></div>
-      <div class="col-md-2"><input name="make" class="form-control" placeholder="Make"></div>
-      <div class="col-md-2"><input name="model" class="form-control" placeholder="Model"></div>
+      <div class="col-md-2">
+        <div class="input-group">
+          <input name="vin" id="addVin" class="form-control" placeholder="VIN (optional)">
+          <button class="btn btn-outline-secondary" type="button" onclick="lookupVinForAdd()">🔍</button>
+        </div>
+      </div>
+      <div class="col-md-2"><input name="year" id="addYear" class="form-control" placeholder="Year"></div>
+      <div class="col-md-2"><input name="make" id="addMake" class="form-control" placeholder="Make"></div>
+      <div class="col-md-2"><input name="model" id="addModel" class="form-control" placeholder="Model"></div>
       <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
     </form>
-    <div class="muted mt-2">Enter vehicle details manually.</div>
+    <div class="muted mt-2">Enter vehicle details manually or use VIN lookup (🔍) to auto-populate.</div>
   </div>
 </div>
 
@@ -134,7 +139,10 @@
           </div>
           <div class="mb-3">
             <label for="editVin" class="form-label">VIN</label>
-            <input type="text" class="form-control" id="editVin" name="vin">
+            <div class="input-group">
+              <input type="text" class="form-control" id="editVin" name="vin">
+              <button class="btn btn-outline-secondary" type="button" onclick="lookupVinForEdit()">🔍 Lookup</button>
+            </div>
           </div>
           <div class="mb-3">
             <label for="editYear" class="form-label">Year</label>
@@ -476,6 +484,105 @@ function submitAddFour(vehicleId) {
     
     document.body.appendChild(form);
     form.submit();
+}
+
+// VIN Lookup Functions
+async function lookupVinForAdd() {
+    const vinInput = document.getElementById('addVin');
+    const vin = vinInput.value.trim();
+    
+    if (!vin) {
+        alert('Please enter a VIN first');
+        return;
+    }
+    
+    if (vin.length < 11) {
+        alert('VIN must be at least 11 characters');
+        return;
+    }
+    
+    try {
+        const button = event.target;
+        button.disabled = true;
+        button.textContent = '⏳';
+        
+        const response = await fetch(`/vehicles/lookup-vin/${encodeURIComponent(vin)}`);
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            // Populate the form fields
+            if (data.year) document.getElementById('addYear').value = data.year;
+            if (data.make) document.getElementById('addMake').value = data.make;
+            if (data.model) document.getElementById('addModel').value = data.model;
+            
+            if (data._learned) {
+                alert('Vehicle information populated from VIN!\n\nOil specifications loaded from previous entries with this VIN.');
+            } else {
+                alert('Vehicle information populated from VIN!');
+            }
+        } else {
+            alert('Could not find vehicle information for this VIN');
+        }
+    } catch (error) {
+        console.error('VIN lookup error:', error);
+        alert('Error looking up VIN. Please try again.');
+    } finally {
+        const button = event.target;
+        button.disabled = false;
+        button.textContent = '🔍';
+    }
+}
+
+async function lookupVinForEdit() {
+    const vinInput = document.getElementById('editVin');
+    const vin = vinInput.value.trim();
+    
+    if (!vin) {
+        alert('Please enter a VIN first');
+        return;
+    }
+    
+    if (vin.length < 11) {
+        alert('VIN must be at least 11 characters');
+        return;
+    }
+    
+    try {
+        const button = event.target;
+        button.disabled = true;
+        button.textContent = '⏳ Lookup';
+        
+        const response = await fetch(`/vehicles/lookup-vin/${encodeURIComponent(vin)}`);
+        const result = await response.json();
+        
+        if (result.success && result.data) {
+            const data = result.data;
+            
+            // Populate the form fields
+            if (data.year) document.getElementById('editYear').value = data.year;
+            if (data.make) document.getElementById('editMake').value = data.make;
+            if (data.model) document.getElementById('editModel').value = data.model;
+            if (data.oil_weight) document.getElementById('editOilWeight').value = data.oil_weight;
+            if (data.oil_capacity_quarts) document.getElementById('editOilCapacity').value = data.oil_capacity_quarts;
+            
+            if (data._learned) {
+                alert('Vehicle information populated from VIN!\n\nOil specifications loaded from previous entries with this VIN.');
+            } else {
+                alert('Vehicle information populated from VIN!');
+            }
+        } else {
+            alert('Could not find vehicle information for this VIN');
+        }
+    } catch (error) {
+        console.error('VIN lookup error:', error);
+        alert('Error looking up VIN. Please try again.');
+    } finally {
+        const button = event.target;
+        button.disabled = false;
+        button.textContent = '🔍 Lookup';
+    }
 }
 </script>
 {% endblock %}
