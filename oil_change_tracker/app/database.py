@@ -4,7 +4,7 @@ import pathlib
 from typing import Iterator
 from urllib.parse import quote_plus
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # 1) Read from env (Railway/Render sets this); fallback is a local file in the repo root.
@@ -45,13 +45,36 @@ if DATABASE_URL.startswith("sqlite:///"):
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 # 4) Create engine + session factory + base class
-engine = create_engine(
-    DATABASE_URL,
-    echo=False,              # flip to True if you want SQL logs
-    future=True,
-    pool_pre_ping=True,
-    connect_args=connect_args,
-)
+def _build_engine(url: str):
+    print(f"🗄️  Initializing DB engine: {url}")
+    return create_engine(
+        url,
+        echo=False,
+        future=True,
+        pool_pre_ping=True,
+        connect_args=connect_args,
+    )
+
+engine = None
+_engine_error = None
+try:
+    engine = _build_engine(DATABASE_URL)
+    # Quick connectivity test (non-fatal if fails)
+    with engine.connect() as conn:
+        conn.execute(text("SELECT 1"))
+    print("✅ Database connectivity OK")
+except Exception as e:
+    _engine_error = e
+    print(f"❌ Failed to initialize primary database URL: {e}" )
+    if os.getenv("DB_FALLBACK_SQLITE", "0") in ("1", "true", "yes"):
+        fallback_url = "sqlite:///./oilchange.db"
+        print("⚠️  Falling back to SQLite due to DB_FALLBACK_SQLITE=1")
+        DATABASE_URL = fallback_url
+        connect_args = {"check_same_thread": False}
+        engine = _build_engine(fallback_url)
+    else:
+        # Re-raise so startup fails clearly
+        raise
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 Base = declarative_base()
