@@ -1,0 +1,22 @@
+{
+  "name": "Oil Change Tracker",
+  "description": "FastAPI application for tracking oil changes",
+  "keywords": ["fastapi", "uvicorn", "python"],
+  "env": {
+    "PORT": {
+      "description": "Port to run the server on",
+      "value": "8000"
+    }
+  },
+  "formation": {
+    "web": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+}

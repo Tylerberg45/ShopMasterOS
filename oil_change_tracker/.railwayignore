@@ -1,0 +1,12 @@
+# Ignore files that might confuse Railway's auto-detection
+*.bat
+*.ps1
+*.sh
+start_server.py
+keep_alive.sh
+Create_Shortcuts.ps1
+StayAwake.ps1
+Run_*.bat
+Install_*.bat
+Uninstall_*.bat
+build_*.bat
