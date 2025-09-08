@@ -12,6 +12,7 @@ from .routers import vehicles as vehicles_router
 from .services.phone import normalize_phone
 import re
 from urllib.parse import urlencode
+from pathlib import Path
 
 # Custom middleware for request logging
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -35,7 +36,19 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 app = FastAPI(title="Oil Change Tracker (MVP)")
 app.add_middleware(RequestLoggingMiddleware)
-templates = Jinja2Templates(directory="app/templates")
+
+# Resolve templates directory robustly regardless of working directory
+_BASE_DIR = Path(__file__).resolve().parent
+_TEMPLATE_DIR = _BASE_DIR / "templates"
+if not _TEMPLATE_DIR.exists():
+    # Fallback: try relative path used previously (useful for local odd launches)
+    legacy = Path.cwd() / "app" / "templates"
+    if legacy.exists():
+        _TEMPLATE_DIR = legacy
+        print(f"⚠️ Using legacy template path fallback: {_TEMPLATE_DIR}")
+    else:
+        print(f"❌ Template directory not found at expected path: {_TEMPLATE_DIR}")
+templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 
