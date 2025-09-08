@@ -204,12 +204,14 @@ def view_errors(request: Request, limit: int = 50, _=Depends(require_admin)):
 # --- DB Diagnostics ---
 @app.get('/admin/db-info')
 def db_info(_=Depends(require_admin)):
+    from sqlalchemy import inspect
     info = {
         'backend': _DB_BACKEND,
         'database': _DB_DATABASE,
         'cwd': os.getcwd(),
-        'db_url': str(_engine.url) if _engine else None,
+        'db_url': _mask_db_url(str(_engine.url)) if _engine else None,
         'files_in_cwd': [f for f in os.listdir('.') if f.endswith('.db')],
+        'tables': inspect(_engine).get_table_names() if _engine else [],
     }
     # For sqlite, also report file size
     if _DB_BACKEND.startswith('sqlite') and _DB_DATABASE and os.path.exists(_DB_DATABASE):
@@ -228,10 +230,20 @@ from .services.netinfo import get_host_info
 
 Base.metadata.create_all(bind=engine)
 
-# --- lightweight SQLite auto-migration for new columns ---
-from sqlalchemy import text
-def _ensure_vehicle_columns():
+# --- Database-agnostic table creation and migration ---
+from sqlalchemy import text, inspect
+def _ensure_tables_and_columns():
+    """Ensure tables exist and add missing columns for both SQLite and PostgreSQL"""
     try:
+        # First, ensure all tables are created
+        Base.metadata.create_all(bind=engine)
+        print(f"✅ Tables created/verified for {_DB_BACKEND}")
+        
+        # Skip column migration for PostgreSQL since create_all handles the schema
+        if _DB_BACKEND == 'postgresql':
+            return
+            
+        # SQLite-specific column additions (for backward compatibility)
         with engine.connect() as conn:
             # Add missing columns to vehicles table
             cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('vehicles')").fetchall()]
@@ -259,29 +271,11 @@ def _ensure_vehicle_columns():
             for stmt in ledger_alters:
                 conn.exec_driver_sql(stmt)
             
-            # Create VIN oil specs table if it doesn't exist
-            try:
-                conn.exec_driver_sql("""
-                    CREATE TABLE IF NOT EXISTS vin_oil_specs (
-                        id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        vin VARCHAR(17) UNIQUE NOT NULL,
-                        oil_weight VARCHAR(10) DEFAULT '',
-                        oil_capacity_quarts VARCHAR(10) DEFAULT '',
-                        oil_type VARCHAR(20) DEFAULT '',
-                        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                        usage_count INTEGER DEFAULT 1
-                    )
-                """)
-                conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS idx_vin_oil_specs_vin ON vin_oil_specs(vin)")
-            except Exception as e:
-                print(f"Error creating vin_oil_specs table: {e}")
-            
             conn.commit()
-    except Exception:
-        # ignore on non-SQLite or if table doesn't exist yet
-        pass
-_ensure_vehicle_columns()
-# --- end auto-migration ---
+    except Exception as e:
+        print(f"⚠️ Table creation/migration error: {e}")
+        # Don't fail startup, but log the issue
+_ensure_tables_and_columns()
 
 # start background backup every 6 hours
 start_periodic_backup(interval_hours=6)
