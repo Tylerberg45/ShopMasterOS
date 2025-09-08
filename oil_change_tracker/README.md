@@ -49,6 +49,9 @@ Why PostgreSQL:
 2. Confirm the app service now has `DATABASE_URL` in Variables (Railway usually injects automatically).
 3. Redeploy the app; tables auto-create via `Base.metadata.create_all`.
 4. Test: create a customer; refresh page; data persists across redeploys.
+5. Verify header `X-DB-Backend: postgresql` on any response and/or visit `/admin/db-info`.
+
+If you had existing SQLite data and want to migrate, run the migrate script locally (see below) then deploy.
 
 ### Migrate Existing Local SQLite Data
 Planned helper script `scripts/migrate_sqlite_to_postgres.py` usage:
@@ -64,6 +67,27 @@ If you must keep SQLite for now:
 3. Redeploy. The file will survive restarts while the volume exists.
 
 Postgres is strongly recommended once real customer data matters.
+
+### Admin Endpoints Security
+Admin pages now require a token if you set `ADMIN_TOKEN`.
+
+Set an environment variable:
+```
+ADMIN_TOKEN=choose-a-long-random-string
+```
+
+Requests must then include either:
+- Header: `X-Admin-Token: <token>`
+- Query param: `?admin_token=<token>`
+
+Protected endpoints:
+- `/admin/errors`
+- `/admin/db-info`
+- `/admin/duplicates`
+- `/admin/link-customer-to-vehicle` (POST)
+- `/admin/merge-customers` (POST)
+
+If `ADMIN_TOKEN` is unset, endpoints are open (development convenience).
 
 ## Roadmap (next)
 - Role-based auth

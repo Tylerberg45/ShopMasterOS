@@ -14,6 +14,9 @@ import re
 from urllib.parse import urlencode
 from pathlib import Path
 import os, json, traceback, uuid, threading
+from fastapi import HTTPException
+
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "").strip()
 
 # Custom middleware for request logging
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -51,6 +54,19 @@ if not _TEMPLATE_DIR.exists():
         print(f"❌ Template directory not found at expected path: {_TEMPLATE_DIR}")
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
 
+# Expose DB backend label to templates
+try:
+    from .database import engine as _engine
+    _DB_BACKEND = _engine.url.get_backend_name()
+    _DB_DATABASE = getattr(_engine.url, 'database', None)
+except Exception:
+    _engine = None
+    _DB_BACKEND = 'unknown'
+    _DB_DATABASE = None
+templates.env.globals['DB_BACKEND'] = _DB_BACKEND
+templates.env.globals['DB_DATABASE'] = _DB_DATABASE
+print(f"🔌 Database backend: {_DB_BACKEND} database={_DB_DATABASE}")
+
 # --- Error Reporting Setup ---
 _ERROR_LOG_PATH = _BASE_DIR / "errors.jsonl"
 _LOG_LOCK = threading.Lock()
@@ -85,8 +101,17 @@ if _SENTRY_DSN:
     except Exception as e:
         print(f"Sentry init failed: {e}")
 
-from fastapi import HTTPException
 from fastapi.responses import PlainTextResponse
+
+
+def require_admin(request: Request):
+    """Simple admin gate. If ADMIN_TOKEN unset, endpoint is open.
+    Accept token via header 'X-Admin-Token' or query param 'admin_token'."""
+    if not ADMIN_TOKEN:
+        return  # open access when token not configured
+    supplied = request.headers.get("X-Admin-Token") or request.query_params.get("admin_token")
+    if supplied != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized: admin token required")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -118,7 +143,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     return PlainTextResponse(f"Internal Server Error (id={error_id})", status_code=status_code)
 
 @app.get("/admin/errors", response_class=HTMLResponse)
-def view_errors(request: Request, limit: int = 50):
+def view_errors(request: Request, limit: int = 50, _=Depends(require_admin)):
     rows = []
     try:
         if _ERROR_LOG_PATH.exists():
@@ -132,6 +157,28 @@ def view_errors(request: Request, limit: int = 50):
     except Exception as e:
         return HTMLResponse(f"Failed to read errors: {e}", status_code=500)
     return templates.TemplateResponse("errors.html", {"request": request, "errors": rows, "count": len(rows)})
+
+# --- DB Diagnostics ---
+@app.get('/admin/db-info')
+def db_info(_=Depends(require_admin)):
+    info = {
+        'backend': _DB_BACKEND,
+        'database': _DB_DATABASE,
+        'cwd': os.getcwd(),
+        'db_url': str(_engine.url) if _engine else None,
+        'files_in_cwd': [f for f in os.listdir('.') if f.endswith('.db')],
+    }
+    # For sqlite, also report file size
+    if _DB_BACKEND.startswith('sqlite') and _DB_DATABASE and os.path.exists(_DB_DATABASE):
+        info['db_file_size_bytes'] = os.path.getsize(_DB_DATABASE)
+    return info
+
+# Middleware to annotate responses with backend header
+@app.middleware('http')
+async def add_db_header(request, call_next):
+    response = await call_next(request)
+    response.headers['X-DB-Backend'] = _DB_BACKEND
+    return response
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 
@@ -551,7 +598,8 @@ async def link_customer_to_vehicle(
     customer_id: int = Form(...),
     vehicle_id: int = Form(...),
     existing_customer_id: int = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _=Depends(require_admin)
 ):
     """Merge customers and link to existing vehicle"""
     try:
@@ -633,7 +681,7 @@ async def link_customer_to_vehicle(
         return RedirectResponse(f"/ui/customer/{customer_id}?error=Error+merging+customers:+{str(e)}", status_code=303)
 
 @app.get("/admin/duplicates", response_class=HTMLResponse)
-async def admin_duplicates(request: Request, db: Session = Depends(get_db)):
+async def admin_duplicates(request: Request, db: Session = Depends(get_db), _=Depends(require_admin)):
     """Admin page for finding and managing potential duplicate customers/vehicles"""
     
     print(f"🔧 ADMIN DUPLICATES REQUEST: {request.method} {request.url}")
@@ -715,7 +763,8 @@ async def admin_duplicates(request: Request, db: Session = Depends(get_db)):
 async def admin_merge_customers(
     primary_customer_id: int = Form(...),
     secondary_customer_id: int = Form(...),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _=Depends(require_admin)
 ):
     """Merge two customer accounts - move all data from secondary to primary"""
     try:
