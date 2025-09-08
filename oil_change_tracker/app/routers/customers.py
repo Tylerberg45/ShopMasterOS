@@ -26,7 +26,7 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     db.commit()
     return c
 
-@router.get("/{customer_id}", response_model=CustomerOut)
+@router.get("/{customer_id:int}", response_model=CustomerOut)
 def get_customer(customer_id: int, db: Session = Depends(get_db)):
     c = db.get(Customer, customer_id)
     if not c:
