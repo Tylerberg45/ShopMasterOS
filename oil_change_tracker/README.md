@@ -34,6 +34,37 @@ If left as `none` (default), the service runs in demo mode and returns a fake VI
 - Simple web UI (Jinja) + JSON APIs.
 - SQLite by default; swap to Postgres via `DATABASE_URL` if needed.
 
+## Production Reliability
+
+For the most reliable deployment use **PostgreSQL** instead of the default SQLite file.
+
+Why PostgreSQL:
+- Ephemeral deploys: host rebuilds wipe a SQLite file unless you attach a volume.
+- Scaling: multiple instances each get their own isolated SQLite database.
+- Concurrency & integrity: Postgres handles simultaneous writes safely; SQLite can lock.
+- Backups & tooling: Easy snapshots, metrics, and migration management.
+
+### Switch to Postgres on Railway
+1. Add a Postgres service in Railway (Add → Database → Postgres).
+2. Confirm the app service now has `DATABASE_URL` in Variables (Railway usually injects automatically).
+3. Redeploy the app; tables auto-create via `Base.metadata.create_all`.
+4. Test: create a customer; refresh page; data persists across redeploys.
+
+### Migrate Existing Local SQLite Data
+Planned helper script `scripts/migrate_sqlite_to_postgres.py` usage:
+```bash
+python scripts/migrate_sqlite_to_postgres.py sqlite:///./oilchange.db $DATABASE_URL
+```
+It will read tables and bulk insert rows skipping duplicates.
+
+### (Temporary) Keep SQLite with Persistence
+If you must keep SQLite for now:
+1. Attach a Railway Volume (e.g. mount at `/data`).
+2. Set env var: `DATABASE_URL=sqlite:////data/oilchange.db` (note 4 slashes after `sqlite:`).
+3. Redeploy. The file will survive restarts while the volume exists.
+
+Postgres is strongly recommended once real customer data matters.
+
 ## Roadmap (next)
 - Role-based auth
 - SMS check balance (Twilio)
