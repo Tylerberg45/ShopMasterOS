@@ -13,6 +13,7 @@ from .services.phone import normalize_phone
 import re
 from urllib.parse import urlencode
 from pathlib import Path
+import os, json, traceback, uuid, threading
 
 # Custom middleware for request logging
 class RequestLoggingMiddleware(BaseHTTPMiddleware):
@@ -49,6 +50,88 @@ if not _TEMPLATE_DIR.exists():
     else:
         print(f"❌ Template directory not found at expected path: {_TEMPLATE_DIR}")
 templates = Jinja2Templates(directory=str(_TEMPLATE_DIR))
+
+# --- Error Reporting Setup ---
+_ERROR_LOG_PATH = _BASE_DIR / "errors.jsonl"
+_LOG_LOCK = threading.Lock()
+_MAX_ERROR_FILE_BYTES = int(os.getenv("ERROR_LOG_MAX_BYTES", str(5 * 1024 * 1024)))  # 5MB default
+
+def _rotate_error_log_if_needed():
+    try:
+        if _ERROR_LOG_PATH.exists() and _ERROR_LOG_PATH.stat().st_size > _MAX_ERROR_FILE_BYTES:
+            rotated = _ERROR_LOG_PATH.with_name(f"errors_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jsonl")
+            _ERROR_LOG_PATH.rename(rotated)
+            print(f"♻️ Rotated error log to {rotated.name}")
+    except Exception as e:
+        print(f"Error rotating log: {e}")
+
+def log_error(event: dict):
+    event.setdefault("ts", datetime.utcnow().isoformat())
+    with _LOG_LOCK:
+        _rotate_error_log_if_needed()
+        try:
+            with _ERROR_LOG_PATH.open('a', encoding='utf-8') as f:
+                f.write(json.dumps(event, ensure_ascii=False) + "\n")
+        except Exception as e:
+            print(f"Failed writing error log: {e}")
+
+# Optional Sentry integration
+_SENTRY_DSN = os.getenv("SENTRY_DSN")
+if _SENTRY_DSN:
+    try:
+        import sentry_sdk
+        sentry_sdk.init(dsn=_SENTRY_DSN, traces_sample_rate=float(os.getenv("SENTRY_TRACES", "0.0")))
+        print("🛰️  Sentry initialized")
+    except Exception as e:
+        print(f"Sentry init failed: {e}")
+
+from fastapi import HTTPException
+from fastapi.responses import PlainTextResponse
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    # Skip HTTPException (FastAPI will map status codes) but still log >=500
+    status_code = 500
+    if isinstance(exc, HTTPException):
+        status_code = exc.status_code
+        if status_code < 500:
+            return PlainTextResponse(str(exc.detail if hasattr(exc, 'detail') else str(exc)), status_code=status_code)
+    error_id = uuid.uuid4().hex[:10]
+    tb = ''.join(traceback.format_exception(type(exc), exc, exc.__traceback__))
+    event = {
+        "id": error_id,
+        "path": request.url.path,
+        "method": request.method,
+        "status": status_code,
+        "headers": {k: v for k, v in request.headers.items() if k.lower() in ("user-agent", "referer")},
+        "query": dict(request.query_params),
+        "error": str(exc),
+        "trace": tb.splitlines()[-25:],  # last lines for brevity
+    }
+    log_error(event)
+    if _SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.capture_exception(exc)
+        except Exception:
+            pass
+    return PlainTextResponse(f"Internal Server Error (id={error_id})", status_code=status_code)
+
+@app.get("/admin/errors", response_class=HTMLResponse)
+def view_errors(request: Request, limit: int = 50):
+    rows = []
+    try:
+        if _ERROR_LOG_PATH.exists():
+            with _ERROR_LOG_PATH.open('r', encoding='utf-8') as f:
+                for line in f.readlines()[-limit:]:
+                    try:
+                        rows.append(json.loads(line))
+                    except Exception:
+                        continue
+            rows.sort(key=lambda r: r.get('ts', ''), reverse=True)
+    except Exception as e:
+        return HTMLResponse(f"Failed to read errors: {e}", status_code=500)
+    return templates.TemplateResponse("errors.html", {"request": request, "errors": rows, "count": len(rows)})
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 

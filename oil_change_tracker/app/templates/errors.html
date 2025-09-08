@@ -1,0 +1,40 @@
+{% extends "layout.html" %}
+{% block content %}
+<h1>Error Log ({{ count }})</h1>
+{% if errors %}
+  <table class="table table-sm table-striped">
+    <thead>
+      <tr>
+        <th>Time (UTC)</th>
+        <th>ID</th>
+        <th>Path</th>
+        <th>Method</th>
+        <th>Status</th>
+        <th>Error</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for e in errors %}
+      <tr>
+        <td>{{ e.ts }}</td>
+        <td><code>{{ e.id }}</code></td>
+        <td>{{ e.path }}</td>
+        <td>{{ e.method }}</td>
+        <td>{{ e.status }}</td>
+        <td style="max-width:300px;white-space:pre-wrap;">{{ e.error }}</td>
+      </tr>
+      <tr>
+        <td colspan="6">
+          <details>
+            <summary>Trace</summary>
+            <pre style="font-size:11px;">{{ e.trace | join('\n') }}</pre>
+          </details>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% else %}
+  <p>No errors logged.</p>
+{% endif %}
+{% endblock %}
