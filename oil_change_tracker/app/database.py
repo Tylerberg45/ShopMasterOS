@@ -45,8 +45,23 @@ if DATABASE_URL.startswith("sqlite:///"):
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
 # 4) Create engine + session factory + base class
+def _mask_url(url: str) -> str:
+    try:
+        if '://' not in url:
+            return url
+        scheme, rest = url.split('://', 1)
+        if '@' not in rest:
+            return url
+        creds, tail = rest.split('@', 1)
+        if ':' in creds:
+            user, _pw = creds.split(':', 1)
+            return f"{scheme}://{user}:***@{tail}"
+        return f"{scheme}://***@{tail}"
+    except Exception:
+        return url
+
 def _build_engine(url: str):
-    print(f"🗄️  Initializing DB engine: {url}")
+    print(f"🗄️  Initializing DB engine: {_mask_url(url)}")
     return create_engine(
         url,
         echo=False,

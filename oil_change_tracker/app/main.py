@@ -94,6 +94,16 @@ def _mask_db_url(url: str) -> str:
         return url
 
 
+def require_admin(request: Request):
+    """Simple admin gate. If ADMIN_TOKEN unset, endpoint is open.
+    Accept token via header 'X-Admin-Token' or query param 'admin_token'."""
+    if not ADMIN_TOKEN:
+        return  # open access when token not configured
+    supplied = request.headers.get("X-Admin-Token") or request.query_params.get("admin_token")
+    if supplied != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized: admin token required")
+
+
 @app.get('/admin/debug-db')
 def debug_db(_=Depends(require_admin)):
     """Deep DB debug info (sanitized)."""
@@ -145,15 +155,6 @@ if _SENTRY_DSN:
 
 from fastapi.responses import PlainTextResponse
 
-
-def require_admin(request: Request):
-    """Simple admin gate. If ADMIN_TOKEN unset, endpoint is open.
-    Accept token via header 'X-Admin-Token' or query param 'admin_token'."""
-    if not ADMIN_TOKEN:
-        return  # open access when token not configured
-    supplied = request.headers.get("X-Admin-Token") or request.query_params.get("admin_token")
-    if supplied != ADMIN_TOKEN:
-        raise HTTPException(status_code=401, detail="Unauthorized: admin token required")
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
@@ -859,6 +860,47 @@ async def admin_merge_customers(
     except Exception as e:
         db.rollback()
         return RedirectResponse(f"/admin/duplicates?error=Error+merging+customers:+{str(e)}", status_code=303)
+
+
+# --- Admin DB Maintenance Utilities (reset & seed) ---
+from sqlalchemy import inspect
+
+@app.post("/admin/reset-db")
+def admin_reset_db(confirm: str = Form(None), _=Depends(require_admin)):
+    """Dangerous: Drop and recreate all tables.
+    Must submit form field confirm=RESET to proceed.
+    Intended only for empty/testing environments.
+    Returns new table list.
+    """
+    if confirm != "RESET":
+        raise HTTPException(status_code=400, detail="Confirmation required: submit confirm=RESET")
+    try:
+        Base.metadata.drop_all(bind=engine)
+        Base.metadata.create_all(bind=engine)
+        insp = inspect(engine)
+        return {"ok": True, "dropped": True, "tables": insp.get_table_names()}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Reset failed: {e}")
+
+
+@app.post("/admin/seed-demo")
+def admin_seed_demo(_=Depends(require_admin)):
+    """Insert a demo customer/plan if DB empty. Safe no-op if data exists."""
+    db = next(get_db())
+    try:
+        has_customer = db.query(Customer).first() is not None
+        if has_customer:
+            return {"ok": True, "skipped": True, "reason": "Data already present"}
+        demo = Customer(first_name="Demo", last_name="User", phone="555-000-0000")
+        db.add(demo)
+        db.flush()
+        plan = OilChangePlan(customer_id=demo.id, total_allowed=4, remaining=4, active=True)
+        db.add(plan)
+        db.commit()
+        return {"ok": True, "seeded": True, "customer_id": demo.id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Seed failed: {e}")
 
 
 @app.get("/info")
