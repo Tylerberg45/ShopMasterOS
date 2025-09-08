@@ -2,12 +2,28 @@
 import os
 import pathlib
 from typing import Iterator
+from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 # 1) Read from env (Railway/Render sets this); fallback is a local file in the repo root.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./oilchange.db").strip()
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+
+# Auto-construct Postgres URL if not provided but component vars exist (Railway style)
+if not DATABASE_URL:
+    # Support both POSTGRES_* and PG* variants
+    host = os.getenv("POSTGRES_HOST") or os.getenv("PGHOST")
+    user = os.getenv("POSTGRES_USER") or os.getenv("PGUSER")
+    password = os.getenv("POSTGRES_PASSWORD") or os.getenv("PGPASSWORD")
+    database = os.getenv("POSTGRES_DATABASE") or os.getenv("PGDATABASE")
+    port = os.getenv("POSTGRES_PORT") or os.getenv("PGPORT") or "5432"
+    if host and user and password and database:
+        DATABASE_URL = f"postgresql+psycopg2://{quote_plus(user)}:{quote_plus(password)}@{host}:{port}/{quote_plus(database)}"
+        print("🔧 Constructed DATABASE_URL from component env vars")
+
+if not DATABASE_URL:
+    DATABASE_URL = "sqlite:///./oilchange.db"
 
 # Handle Railway's PostgreSQL URL format if provided
 if DATABASE_URL.startswith("postgresql://"):

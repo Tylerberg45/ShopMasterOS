@@ -67,6 +67,48 @@ templates.env.globals['DB_BACKEND'] = _DB_BACKEND
 templates.env.globals['DB_DATABASE'] = _DB_DATABASE
 print(f"🔌 Database backend: {_DB_BACKEND} database={_DB_DATABASE}")
 
+# Warn loudly if we're on a hosted environment and still using SQLite (non-persistent without volume)
+if any(k in os.environ for k in ["RAILWAY_PROJECT_ID", "RAILWAY_STATIC_URL"]) and _DB_BACKEND.startswith("sqlite"):
+        print("""
+⚠️  WARNING: Running with SQLite on Railway.
+     Data will be lost on redeploy unless you either:
+         1. Add a Postgres database and set DATABASE_URL, OR
+         2. Attach a Volume and point DATABASE_URL to a path inside it (e.g. sqlite:////data/oilchange.db).
+     Visit /admin/db-info (with admin token if set) to verify after changes.
+""".strip())
+
+
+def _mask_db_url(url: str) -> str:
+    try:
+        if '://' not in url:
+            return url
+        scheme, rest = url.split('://', 1)
+        if '@' not in rest:
+            return url
+        creds, tail = rest.split('@', 1)
+        if ':' in creds:
+            user, _pw = creds.split(':', 1)
+            return f"{scheme}://{user}:***@{tail}"
+        return f"{scheme}://***@{tail}"
+    except Exception:
+        return url
+
+
+@app.get('/admin/debug-db')
+def debug_db(_=Depends(require_admin)):
+    """Deep DB debug info (sanitized)."""
+    raw_env = os.getenv('DATABASE_URL', '')
+    return {
+        'env_has_DATABASE_URL': bool(raw_env),
+        'env_DATABASE_URL_masked': _mask_db_url(raw_env) if raw_env else None,
+        'engine_url': str(_engine.url) if _engine else None,
+        'engine_backend': _DB_BACKEND,
+        'engine_database': _DB_DATABASE,
+        'pwd': os.getcwd(),
+        'db_files_in_pwd': [f for f in os.listdir('.') if f.endswith('.db')],
+        'relevant_env': {k: os.getenv(k) for k in sorted(os.environ) if any(sub in k for sub in ['DB', 'DATABASE'])},
+    }
+
 # --- Error Reporting Setup ---
 _ERROR_LOG_PATH = _BASE_DIR / "errors.jsonl"
 _LOG_LOCK = threading.Lock()
