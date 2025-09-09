@@ -164,17 +164,73 @@ def _ensure_vehicle_columns():
                     )
                     """
                 )
-                customers_result = conn.exec_driver_sql("SELECT id, first_name, last_name, phone, landline, email FROM customers").fetchall()
-                for customer in customers_result:
-                    customer_id, first_name, last_name, phone, landline, email = customer
-                    contact_name = f"{first_name} {last_name}".strip() or "Primary Contact"
-                    conn.exec_driver_sql(
-                        """
-                        INSERT INTO contacts (customer_id, contact_name, role, mobile, landline, email, preferred)
-                        VALUES (?, ?, 'Owner', ?, ?, ?, TRUE)
-                        """,
-                        (customer_id, phone or '', landline or '', email or '')
-                    )
+                # Check if landline column exists in customers table before selecting it
+                customer_cols_list = []
+                if dialect == 'sqlite':
+                    try:
+                        customer_cols_list = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
+                    except Exception:
+                        customer_cols_list = []
+                else:
+                    try:
+                        customer_cols_list = [r[0].lower() for r in conn.exec_driver_sql(
+                            "SELECT column_name FROM information_schema.columns WHERE table_name='customers' AND table_schema = current_schema()"
+                        ).fetchall()]
+                    except Exception:
+                        customer_cols_list = []
+                
+                # Select columns based on what exists
+                has_landline = 'landline' in customer_cols_list
+                has_email = 'email' in customer_cols_list
+                
+                if has_landline and has_email:
+                    customers_result = conn.exec_driver_sql("SELECT id, first_name, last_name, phone, landline, email FROM customers").fetchall()
+                    for customer in customers_result:
+                        customer_id, first_name, last_name, phone, landline, email = customer
+                        contact_name = f"{first_name} {last_name}".strip() or "Primary Contact"
+                        conn.exec_driver_sql(
+                            """
+                            INSERT INTO contacts (customer_id, contact_name, role, mobile, landline, email, preferred)
+                            VALUES (?, ?, 'Owner', ?, ?, ?, TRUE)
+                            """,
+                            (customer_id, contact_name, 'Owner', phone or '', landline or '', email or '', True)
+                        )
+                elif has_landline:
+                    customers_result = conn.exec_driver_sql("SELECT id, first_name, last_name, phone, landline FROM customers").fetchall()
+                    for customer in customers_result:
+                        customer_id, first_name, last_name, phone, landline = customer
+                        contact_name = f"{first_name} {last_name}".strip() or "Primary Contact"
+                        conn.exec_driver_sql(
+                            """
+                            INSERT INTO contacts (customer_id, contact_name, role, mobile, landline, email, preferred)
+                            VALUES (?, ?, 'Owner', ?, ?, ?, TRUE)
+                            """,
+                            (customer_id, contact_name, 'Owner', phone or '', landline or '', '', True)
+                        )
+                elif has_email:
+                    customers_result = conn.exec_driver_sql("SELECT id, first_name, last_name, phone, email FROM customers").fetchall()
+                    for customer in customers_result:
+                        customer_id, first_name, last_name, phone, email = customer
+                        contact_name = f"{first_name} {last_name}".strip() or "Primary Contact"
+                        conn.exec_driver_sql(
+                            """
+                            INSERT INTO contacts (customer_id, contact_name, role, mobile, landline, email, preferred)
+                            VALUES (?, ?, 'Owner', ?, ?, ?, TRUE)
+                            """,
+                            (customer_id, contact_name, 'Owner', phone or '', '', email or '', True)
+                        )
+                else:
+                    customers_result = conn.exec_driver_sql("SELECT id, first_name, last_name, phone FROM customers").fetchall()
+                    for customer in customers_result:
+                        customer_id, first_name, last_name, phone = customer
+                        contact_name = f"{first_name} {last_name}".strip() or "Primary Contact"
+                        conn.exec_driver_sql(
+                            """
+                            INSERT INTO contacts (customer_id, contact_name, role, mobile, landline, email, preferred)
+                            VALUES (?, ?, 'Owner', ?, ?, ?, TRUE)
+                            """,
+                            (customer_id, contact_name, 'Owner', phone or '', '', '', True)
+                        )
                 print(f"Migrated {len(customers_result)} customer contacts")
         engine.dispose()
     except Exception:
