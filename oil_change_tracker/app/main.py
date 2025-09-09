@@ -189,10 +189,14 @@ def get_customer(customer_id: int, request: Request, db: Session = Depends(get_d
         vehicle_ids = [v.id for v in vehicles]
         
         # Bulk query for oil change counts per vehicle
+        # Count only usage entries (delta = -1) so additions (+4, etc.) don't inflate per-vehicle usage
         oil_change_counts = db.query(
             OilChangeLedger.vehicle_id,
             func.count(OilChangeLedger.id).label('count')
-        ).filter(OilChangeLedger.vehicle_id.in_(vehicle_ids)).group_by(OilChangeLedger.vehicle_id).all()
+        ).filter(
+            OilChangeLedger.vehicle_id.in_(vehicle_ids),
+            OilChangeLedger.delta == -1
+        ).group_by(OilChangeLedger.vehicle_id).all()
         
         # Convert to dict for fast lookup
         counts_dict = {row.vehicle_id: row.count for row in oil_change_counts}
