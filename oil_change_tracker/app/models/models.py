@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Date, ForeignKey, Boolean, Float
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from datetime import datetime, date
@@ -14,6 +14,7 @@ class Customer(Base):
     vehicles = relationship("Vehicle", back_populates="owner", cascade="all, delete-orphan")
     plans = relationship("OilChangePlan", back_populates="customer", cascade="all, delete-orphan")
     ledger_entries = relationship("OilChangeLedger", back_populates="customer", cascade="all, delete-orphan")
+    contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
 
     @property
     def name(self):
@@ -60,6 +61,21 @@ class VinOilSpec(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
     usage_count: Mapped[int] = mapped_column(Integer, default=1)  # How many times this spec has been used
 
+class Contact(Base):
+    __tablename__ = "contacts"
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id", ondelete="CASCADE"))
+    contact_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    role: Mapped[str] = mapped_column(String(50), default="")
+    mobile: Mapped[str] = mapped_column(String(20), default="")
+    landline: Mapped[str] = mapped_column(String(20), default="")
+    email: Mapped[str] = mapped_column(String(255), default="")
+    preferred: Mapped[bool] = mapped_column(Boolean, default=False)
+    notes: Mapped[str] = mapped_column(String(500), default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+
+    customer = relationship("Customer", back_populates="contacts")
+
 class OilChangeLedger(Base):
     __tablename__ = "oil_change_ledger"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
@@ -67,10 +83,22 @@ class OilChangeLedger(Base):
     vehicle_id: Mapped[int] = mapped_column(ForeignKey("vehicles.id"), nullable=True)
     mileage: Mapped[int] = mapped_column(Integer, nullable=True)
     oil_weight: Mapped[str] = mapped_column(String(10), nullable=True)
-    oil_quarts: Mapped[float] = mapped_column(Integer, nullable=True)
+    oil_quarts: Mapped[float] = mapped_column(Float, nullable=True)
     delta: Mapped[int] = mapped_column(Integer)  # -1 for use, +4 for tire purchase
     note: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
 
     customer = relationship("Customer", back_populates="ledger_entries")
     vehicle = relationship("Vehicle")
+
+    @property
+    def was_free(self) -> bool:
+        return self.delta == -1
+
+    @property
+    def is_addition(self) -> bool:
+        return self.delta > 0
+
+    @property
+    def is_note(self) -> bool:
+        return self.delta == 0
