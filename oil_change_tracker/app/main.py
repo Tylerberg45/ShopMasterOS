@@ -37,8 +37,14 @@ def _ensure_vehicle_columns():
             if 'oil_weight' not in cols:
                 conn.exec_driver_sql("ALTER TABLE vehicles ADD COLUMN oil_weight VARCHAR(10) DEFAULT ''")
 
-            # Customers new cols
-            customer_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
+            # Customers new cols (handle SQLite vs Postgres)
+            try:
+                customer_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
+                pragma_mode = True
+            except Exception:
+                # Fallback for Postgres
+                pragma_mode = False
+                customer_cols = [r[0].lower() for r in conn.exec_driver_sql("SELECT column_name FROM information_schema.columns WHERE table_name='customers'").fetchall()]
             if 'landline' not in customer_cols:
                 conn.exec_driver_sql("ALTER TABLE customers ADD COLUMN landline VARCHAR(20) DEFAULT ''")
             if 'email' not in customer_cols:

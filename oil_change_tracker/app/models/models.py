@@ -10,6 +10,8 @@ class Customer(Base):
     first_name: Mapped[str] = mapped_column(String(100), index=True)
     last_name: Mapped[str] = mapped_column(String(100), index=True)
     phone: Mapped[str] = mapped_column(String(20), index=True, unique=False, default="")
+    landline: Mapped[str] = mapped_column(String(20), default="")
+    email: Mapped[str] = mapped_column(String(255), default="")
 
     vehicles = relationship("Vehicle", back_populates="owner", cascade="all, delete-orphan")
     plans = relationship("OilChangePlan", back_populates="customer", cascade="all, delete-orphan")
