@@ -115,6 +115,7 @@
         <td>{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
         <td>{{ e.note }}</td>
         <td>
+          <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="openEditLedgerModal({{ e.id }})">Edit</button>
           <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" 
                 onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ abs(e.delta) }} oil change{% if abs(e.delta) != 1 %}s{% endif %}.')">
             <button type="submit" class="btn btn-danger btn-sm">
@@ -345,6 +346,82 @@
 </div>
 
 <script>
+// Ledger Edit Modal
+// Modal markup injected near end to avoid large restructures
+</script>
+
+<!-- Edit Ledger Entry Modal -->
+<div class="modal fade" id="editLedgerModal" tabindex="-1" aria-labelledby="editLedgerModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editLedgerModalLabel">Edit Entry</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="editLedgerForm" method="post">
+        <div class="modal-body">
+          <input type="hidden" name="entry_id" id="editLedgerEntryId">
+          <div class="mb-3">
+            <label class="form-label">Mileage</label>
+            <input type="number" class="form-control" name="mileage" id="editLedgerMileage" placeholder="(leave blank to keep)" >
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Service Date</label>
+            <input type="date" class="form-control" name="service_date" id="editLedgerDate">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Oil Weight</label>
+            <input type="text" class="form-control" name="oil_weight" id="editLedgerOilWeight" maxlength="10">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Oil Quarts</label>
+            <input type="number" step="0.1" class="form-control" name="oil_quarts" id="editLedgerOilQuarts">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Note</label>
+            <input type="text" class="form-control" name="note" id="editLedgerNote" maxlength="255">
+          </div>
+          <div class="small text-muted">Only change fields you want to update.</div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+async function openEditLedgerModal(entryId) {
+  try {
+    const resp = await fetch(`/ui/customer/{{ c.id }}/ledger/${entryId}/json`);
+    const data = await resp.json();
+    if (data.error) {
+      alert('Entry not found');
+      return;
+    }
+    document.getElementById('editLedgerForm').action = `/ui/customer/{{ c.id }}/ledger/${entryId}/edit`;
+    document.getElementById('editLedgerEntryId').value = entryId;
+    document.getElementById('editLedgerMileage').value = data.mileage ?? '';
+    document.getElementById('editLedgerDate').value = data.date ?? '';
+    document.getElementById('editLedgerOilWeight').value = data.oil_weight ?? '';
+    document.getElementById('editLedgerOilQuarts').value = data.oil_quarts ?? '';
+    document.getElementById('editLedgerNote').value = data.note ?? '';
+    const modal = new bootstrap.Modal(document.getElementById('editLedgerModal'));
+    modal.show();
+  } catch (e) {
+    console.error(e);
+    alert('Failed to load entry');
+  }
+}
+
+document.getElementById('editLedgerForm')?.addEventListener('submit', function() {
+  // simple client-side trim
+  const note = document.getElementById('editLedgerNote');
+  note.value = note.value.trim();
+});
+</script>
 function validateDeductForm(form) {
     const vehicle = form.vehicle_id.value;
     const mileage = form.mileage.value;
