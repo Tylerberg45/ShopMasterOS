@@ -118,7 +118,7 @@
         <td class="ledger-note" data-value="{{ e.note }}">{{ e.note }}</td>
         <td class="ledger-actions">
           <button type="button" class="btn btn-outline-secondary btn-sm me-1 ledger-edit-btn" data-entry-id="{{ e.id }}">Edit</button>
-          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ abs(e.delta) }} oil change{% if abs(e.delta) != 1 %}s{% endif %}.')">
+          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ e.delta|abs }} oil change{% if (e.delta|abs) != 1 %}s{% endif %}.')">
             <button type="submit" class="btn btn-danger btn-sm">
               <i class="bi bi-trash"></i>
             </button>
