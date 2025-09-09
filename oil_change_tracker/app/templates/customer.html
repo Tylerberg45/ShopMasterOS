@@ -250,6 +250,27 @@
   </div>
 </div>
 
+<!-- Mileage Confirmation Modal -->
+<div class="modal fade" id="mileageConfirmModal" tabindex="-1" aria-labelledby="mileageConfirmModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-warning">
+        <h5 class="modal-title" id="mileageConfirmModalLabel">⚠️ Mileage Warning</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body" id="mileageConfirmModalBody">
+        <!-- Warning message will be inserted here -->
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-warning" id="confirmMileageBtn" onclick="confirmMileage()">
+          Confirm Mileage
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <!-- Use Oil Change Modal -->
 <div class="modal fade" id="useOilChangeModal" tabindex="-1" aria-labelledby="useOilChangeModalLabel" aria-hidden="true">
   <div class="modal-dialog">
@@ -584,5 +605,50 @@ async function lookupVinForEdit() {
         button.textContent = '🔍 Lookup';
     }
 }
+
+// Mileage confirmation functionality
+let pendingMileageData = {};
+
+function confirmMileage() {
+    // Add the confirmation flag and submit the form
+    const form = document.createElement('form');
+    form.method = 'post';
+    form.action = `/ui/customer/{{ c.id }}/deduct`;
+    form.style.display = 'none';
+    
+    form.innerHTML = `
+        <input type="hidden" name="vehicle_id" value="${pendingMileageData.vehicle_id}">
+        <input type="hidden" name="mileage" value="${pendingMileageData.mileage}">
+        <input type="hidden" name="service_date" value="${pendingMileageData.service_date}">
+        <input type="hidden" name="confirm_mileage" value="true">
+    `;
+    
+    document.body.appendChild(form);
+    form.submit();
+}
+
+// Check for mileage confirmation on page load
+document.addEventListener('DOMContentLoaded', function() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const showConfirm = urlParams.get('show_confirm');
+    const error = urlParams.get('error');
+    
+    if (showConfirm === 'true' && error) {
+        // Store the pending data
+        pendingMileageData.vehicle_id = urlParams.get('vehicle_id');
+        pendingMileageData.mileage = urlParams.get('mileage');
+        pendingMileageData.service_date = urlParams.get('service_date');
+        
+        // Show the confirmation modal
+        document.getElementById('mileageConfirmModalBody').innerHTML = decodeURIComponent(error.replace(/\+/g, ' '));
+        const modal = new bootstrap.Modal(document.getElementById('mileageConfirmModal'));
+        modal.show();
+        
+        // Clean up the URL
+        const newUrl = window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+    }
+});
+
 </script>
 {% endblock %}

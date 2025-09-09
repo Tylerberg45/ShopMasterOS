@@ -361,6 +361,98 @@ def ui_add_four(customer_id: int, vehicle_id: int = Form(...), service_date: str
     db.commit()
     return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
 
+@app.post("/ui/customer/{customer_id}/deduct")
+def ui_deduct_oil_change(
+    customer_id: int, 
+    vehicle_id: int = Form(...), 
+    mileage: int = Form(...), 
+    service_date: str = Form(None),
+    confirm_mileage: bool = Form(False),
+    db: Session = Depends(get_db)
+):
+    """Use/deduct 1 oil change from customer's plan"""
+    try:
+        # Validate vehicle belongs to customer
+        vehicle = db.get(Vehicle, vehicle_id)
+        if not vehicle or vehicle.customer_id != customer_id:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+vehicle", status_code=303)
+        
+        # Check if customer has oil changes remaining
+        plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
+        if not plan:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+oil+change+plan", status_code=303)
+        
+        if plan.remaining <= 0:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=No+oil+changes+remaining", status_code=303)
+        
+        # Validate mileage (should be positive and reasonable)
+        if mileage < 0 or mileage > 999999:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+mileage", status_code=303)
+        
+        # Get the last mileage entry for this vehicle for validation
+        last_entry = db.query(OilChangeLedger).filter(
+            OilChangeLedger.vehicle_id == vehicle_id,
+            OilChangeLedger.mileage.isnot(None)
+        ).order_by(OilChangeLedger.created_at.desc()).first()
+        
+        # Validate mileage against previous entry (unless confirmed)
+        if last_entry and last_entry.mileage and not confirm_mileage:
+            last_mileage = last_entry.mileage
+            mileage_diff = mileage - last_mileage
+            
+            # Check if mileage is less than previous (going backwards)
+            if mileage < last_mileage:
+                return RedirectResponse(
+                    f"/ui/customer/{customer_id}?error=Warning:+New+mileage+({mileage:,})+is+less+than+previous+entry+({last_mileage:,}).+Please+verify+mileage+is+correct.&show_confirm=true&vehicle_id={vehicle_id}&mileage={mileage}&service_date={service_date or ''}", 
+                    status_code=303
+                )
+            
+            # Check if mileage increase is suspiciously high (more than 10,000 miles)
+            if mileage_diff > 10000:
+                return RedirectResponse(
+                    f"/ui/customer/{customer_id}?error=Warning:+Mileage+increase+of+{mileage_diff:,}+miles+seems+high.+Previous:+{last_mileage:,},+New:+{mileage:,}.+Please+verify.&show_confirm=true&vehicle_id={vehicle_id}&mileage={mileage}&service_date={service_date or ''}", 
+                    status_code=303
+                )
+            
+            print(f"✅ Mileage validation passed: {last_mileage:,} → {mileage:,} (+{mileage_diff:,} miles)")
+        elif confirm_mileage:
+            print(f"✅ Mileage confirmed by user: {mileage:,}")
+        else:
+            print(f"✅ First mileage entry for vehicle: {mileage:,}")
+        
+        # Parse service date
+        try:
+            created_date = datetime.strptime(service_date, '%Y-%m-%d') if service_date else datetime.utcnow()
+        except ValueError:
+            return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+date+format", status_code=303)
+        
+        # Deduct oil change from plan
+        plan.remaining -= 1
+        
+        # Create ledger entry
+        ledger_entry = OilChangeLedger(
+            customer_id=customer_id,
+            vehicle_id=vehicle_id,
+            mileage=mileage,
+            oil_weight=vehicle.oil_weight,
+            oil_quarts=float(vehicle.oil_capacity_quarts) if vehicle.oil_capacity_quarts else None,
+            delta=-1,
+            note="Oil change service",
+            created_at=created_date
+        )
+        db.add(ledger_entry)
+        
+        # Commit changes
+        db.commit()
+        
+        print(f"✅ Used 1 oil change for customer {customer_id}, vehicle {vehicle_id}, mileage {mileage}")
+        return RedirectResponse(f"/ui/customer/{customer_id}", status_code=303)
+        
+    except Exception as e:
+        print(f"ERROR in deduct oil change: {str(e)}")
+        db.rollback()
+        return RedirectResponse(f"/ui/customer/{customer_id}?error=Service+failed", status_code=303)
+
 @app.post("/ui/customer/new")
 def ui_new_customer(first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(""), landline: str = Form(""), email: str = Form(""), db: Session = Depends(get_db)):
     try:
@@ -512,6 +604,15 @@ def merge_customers(request: Request, primary_customer_id: int = Form(...), seco
                 raise HTTPException(status_code=400, detail="Cannot merge customer with itself")
             
             print(f"DEBUG: Merging {remove_customer.first_name} {remove_customer.last_name} into {keep_customer.first_name} {keep_customer.last_name}")
+            
+            # Merge names - prefer longer/more complete names
+            if remove_customer.first_name and (not keep_customer.first_name or len(remove_customer.first_name) > len(keep_customer.first_name)):
+                print(f"DEBUG: Updating first name from '{keep_customer.first_name}' to '{remove_customer.first_name}'")
+                keep_customer.first_name = remove_customer.first_name
+                
+            if remove_customer.last_name and (not keep_customer.last_name or len(remove_customer.last_name) > len(keep_customer.last_name)):
+                print(f"DEBUG: Updating last name from '{keep_customer.last_name}' to '{remove_customer.last_name}'")
+                keep_customer.last_name = remove_customer.last_name
             
             # Merge contact information - combine non-empty fields
             if remove_customer.phone and not keep_customer.phone:
