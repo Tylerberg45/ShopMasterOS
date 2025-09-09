@@ -50,8 +50,13 @@
         <td>{{ vehicle_oil_changes[v.id] }}</td>
         <td>
           <div class="d-flex gap-1">
-            <button class="btn btn-warning btn-sm flex-fill" onclick="openUseOilChangeModal({{ v.id }}, '{{ v.year }} {{ v.make }} {{ v.model }}', {{ vehicle_last_mileage[v.id] }})" 
-                    title="Use 1 oil change - requires mileage">Use 1</button>
+      {# Use data-* attributes to avoid inline JS errors when last mileage is None and to prevent quote escaping issues #}
+      <button class="btn btn-warning btn-sm flex-fill"
+        data-vehicle-id="{{ v.id }}"
+        data-vehicle-info="{{ v.year }} {{ v.make }} {{ v.model }}"
+        data-last-mileage="{{ vehicle_last_mileage[v.id]|default(0, true) }}"
+        onclick="openUseOilChangeModal(this.dataset.vehicleId, this.dataset.vehicleInfo, parseInt(this.dataset.lastMileage || '0'))"
+        title="Use 1 oil change - requires mileage">Use 1</button>
             <button class="btn btn-success btn-sm flex-fill" onclick="openAddFourModal({{ v.id }}, '{{ v.year }} {{ v.make }} {{ v.model }}')" 
                     title="Add 4 oil changes for tire purchase">Add 4</button>
           </div>
