@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Depends, Form, HTTPException
 from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from datetime import datetime
 from sqlalchemy.orm import Session
@@ -19,6 +20,11 @@ import os
 # Resolve templates directory relative to this file so deployment CWD does not matter
 _BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(_BASE_DIR / "templates"))
+# Mount reports directory so advisor reports can be viewed in browser
+_REPORTS_DIR = _BASE_DIR / "reports"
+os.makedirs(_REPORTS_DIR, exist_ok=True)
+if not any(isinstance(r.app, StaticFiles) and r.path == "/reports" for r in app.routes):  # avoid double mount on reload
+    app.mount("/reports", StaticFiles(directory=str(_REPORTS_DIR)), name="reports")
 # Add enumerate to Jinja2 global functions
 templates.env.globals['enumerate'] = enumerate
 from .services.auto_backup import start_periodic_backup, backup_once
@@ -824,10 +830,24 @@ def advisor_dashboard(request: Request):
     return templates.TemplateResponse("advisor.html", {"request": request, "metrics": metrics, "tips": tips})
 
 @app.post("/advisor/run")
-def advisor_run():
+def advisor_run(request: Request):
+    """Generate advisor report. If HTML form submission, redirect back with status + links.
+    If JSON requested (AJAX), return structured JSON with web-accessible URLs.
+    """
     from .services.advisor import run_once
     json_path, html_path = run_once(days=30)
-    return {"ok": True, "json_report": json_path, "html_report": html_path}
+    json_name = os.path.basename(json_path)
+    html_name = os.path.basename(html_path)
+    json_url = f"/reports/{json_name}"
+    html_url = f"/reports/{html_name}"
+    accept = request.headers.get("accept", "")
+    # If browser form (expects HTML) redirect with query params
+    if "text/html" in accept and "application/json" not in accept:
+        stamp = html_name.replace("advisor_", "").replace(".html", "")
+        qp = f"generated=1&date={stamp}&html={html_name}&json={json_name}"
+        return RedirectResponse(url=f"/advisor?{qp}", status_code=303)
+    # JSON (e.g., fetch) response
+    return {"ok": True, "json_report": json_url, "html_report": html_url}
 
 @app.get('/healthz')
 def healthz():

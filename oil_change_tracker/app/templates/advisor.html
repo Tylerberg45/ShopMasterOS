@@ -36,8 +36,44 @@
   </div>
 </div>
 
-<form method="post" action="/advisor/run" class="mb-3">
-  <button class="btn btn-primary" type="submit">Generate Report</button>
+{% if request.query_params.generated %}
+<div class="alert alert-success d-flex justify-content-between align-items-center">
+  <div>
+    Advisor report generated for {{ request.query_params.date }}.
+    <a href="/reports/{{ request.query_params.html }}" target="_blank">Open HTML</a> ·
+    <a href="/reports/{{ request.query_params.json }}" target="_blank">JSON</a>
+  </div>
+  <a class="btn-close" href="/advisor" aria-label="Close"></a>
+</div>
+{% endif %}
+<form id="advisorRunForm" method="post" action="/advisor/run" class="mb-3">
+  <button class="btn btn-primary" type="submit" id="advisorRunBtn">Generate Report</button>
+  <span id="advisorSpinner" class="ms-2" style="display:none;">Generating…</span>
 </form>
-<div class="muted">Reports are saved under <code>./app/reports/</code> on the thumb drive.</div>
+<div class="small text-muted mb-2">Reports are accessible at <code>/reports/</code>. They overwrite daily.</div>
+<script>
+// Progressive enhancement: capture submit to use fetch so we stay on page without redirect flash
+document.getElementById('advisorRunForm').addEventListener('submit', async function(ev){
+  ev.preventDefault();
+  const btn = document.getElementById('advisorRunBtn');
+  const spin = document.getElementById('advisorSpinner');
+  btn.disabled = true; spin.style.display='inline';
+  try {
+    const resp = await fetch('/advisor/run', {method:'POST', headers:{'accept':'application/json'}});
+    const data = await resp.json();
+    if(data.ok){
+      // Build alert
+      const params = new URLSearchParams({generated:'1', date: new Date().toISOString().slice(0,10), html: data.html_report.split('/').pop(), json: data.json_report.split('/').pop()});
+      window.location = '/advisor?' + params.toString();
+    } else {
+      alert('Failed to generate report');
+    }
+  } catch(e){
+    console.error(e);
+    alert('Error generating report');
+  } finally {
+    btn.disabled = false; spin.style.display='none';
+  }
+});
+</script>
 {% endblock %}
