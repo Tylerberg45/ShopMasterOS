@@ -28,57 +28,120 @@ Base.metadata.create_all(bind=engine)
 def _ensure_vehicle_columns():
     try:
         with engine.connect() as conn:
-            # Vehicles table columns
-            cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('vehicles')").fetchall()]
-            if 'oil_type' not in cols:
-                conn.exec_driver_sql("ALTER TABLE vehicles ADD COLUMN oil_type VARCHAR(20) DEFAULT ''")
-            if 'oil_capacity_quarts' not in cols:
-                conn.exec_driver_sql("ALTER TABLE vehicles ADD COLUMN oil_capacity_quarts VARCHAR(10) DEFAULT ''")
-            if 'oil_weight' not in cols:
-                conn.exec_driver_sql("ALTER TABLE vehicles ADD COLUMN oil_weight VARCHAR(10) DEFAULT ''")
+            # Vehicles table columns (handle SQLite vs Postgres)
+            dialect = conn.dialect.name
+            vehicle_cols = []
+            if dialect == 'sqlite':
+                try:
+                    vehicle_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('vehicles')").fetchall()]
+                except Exception:
+                    vehicle_cols = []
+            else:
+                try:
+                    vehicle_cols = [r[0].lower() for r in conn.exec_driver_sql(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='vehicles' AND table_schema = current_schema()"
+                    ).fetchall()]
+                except Exception:
+                    vehicle_cols = []
+
+            def _add_vehicle_column(name: str, ddl: str):
+                if name in vehicle_cols:
+                    return
+                if dialect == 'postgresql':
+                    ddl_stmt = f"ALTER TABLE vehicles ADD COLUMN IF NOT EXISTS {ddl}"
+                else:
+                    ddl_stmt = f"ALTER TABLE vehicles ADD COLUMN {ddl}"
+                try:
+                    conn.exec_driver_sql(ddl_stmt)
+                    vehicle_cols.append(name)
+                    print(f"Added column '{name}' to vehicles")
+                except Exception as ce:
+                    msg = str(ce).lower()
+                    if any(tok in msg for tok in ['duplicate', 'exists', 'already']):
+                        pass
+                    else:
+                        print(f"Warning adding vehicle column {name}: {ce}")
+
+            _add_vehicle_column('oil_type', "oil_type VARCHAR(20) DEFAULT ''")
+            _add_vehicle_column('oil_capacity_quarts', "oil_capacity_quarts VARCHAR(10) DEFAULT ''")
+            _add_vehicle_column('oil_weight', "oil_weight VARCHAR(10) DEFAULT ''")
 
             # Customers new cols (handle SQLite vs Postgres)
-            customer_cols = []
             dialect = conn.dialect.name
+            customer_cols = []
             if dialect == 'sqlite':
                 try:
                     customer_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
                 except Exception:
                     customer_cols = []
-            else:  # postgres / others
+            else:
+                # Include schema condition for Postgres to avoid duplicate from other schemas
                 try:
                     customer_cols = [r[0].lower() for r in conn.exec_driver_sql(
-                        "SELECT column_name FROM information_schema.columns WHERE table_name='customers'"
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='customers' AND table_schema = current_schema()"
                     ).fetchall()]
                 except Exception:
                     customer_cols = []
 
-            def _add_col(sql: str):  # attempt to add, ignore if exists
+            def _add_customer_column(name: str, ddl: str):
+                if name in customer_cols:
+                    return
+                if dialect == 'postgresql':
+                    # Use IF NOT EXISTS when available
+                    ddl_stmt = f"ALTER TABLE customers ADD COLUMN IF NOT EXISTS {ddl}"
+                else:
+                    ddl_stmt = f"ALTER TABLE customers ADD COLUMN {ddl}"
                 try:
-                    conn.exec_driver_sql(sql)
+                    conn.exec_driver_sql(ddl_stmt)
+                    customer_cols.append(name)
+                    print(f"Added column '{name}' to customers")
                 except Exception as ce:
-                    # Silently ignore duplicate/exists errors
                     msg = str(ce).lower()
-                    if 'duplicate' in msg or 'exists' in msg or 'already' in msg:
+                    if any(tok in msg for tok in ['duplicate', 'exists', 'already']):
                         pass
                     else:
-                        print(f"Column add warning: {ce}")
+                        print(f"Warning adding column {name}: {ce}")
 
-            if 'landline' not in customer_cols:
-                _add_col("ALTER TABLE customers ADD COLUMN landline VARCHAR(20) DEFAULT ''")
-            if 'email' not in customer_cols:
-                _add_col("ALTER TABLE customers ADD COLUMN email VARCHAR(255) DEFAULT ''")
+            _add_customer_column('landline', "landline VARCHAR(20) DEFAULT ''")
+            _add_customer_column('email', "email VARCHAR(255) DEFAULT ''")
 
-            # Ledger new cols
-            ledger_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('oil_change_ledger')").fetchall()]
-            if 'oil_weight' not in ledger_cols:
-                conn.exec_driver_sql("ALTER TABLE oil_change_ledger ADD COLUMN oil_weight VARCHAR(10)")
-            if 'oil_quarts' not in ledger_cols:
-                conn.exec_driver_sql("ALTER TABLE oil_change_ledger ADD COLUMN oil_quarts FLOAT")
-            if 'mileage' not in ledger_cols:
-                conn.exec_driver_sql("ALTER TABLE oil_change_ledger ADD COLUMN mileage INTEGER")
-            if 'vehicle_id' not in ledger_cols:
-                conn.exec_driver_sql("ALTER TABLE oil_change_ledger ADD COLUMN vehicle_id INTEGER")
+            # Ledger new cols (handle SQLite vs Postgres)
+            ledger_cols = []
+            if dialect == 'sqlite':
+                try:
+                    ledger_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('oil_change_ledger')").fetchall()]
+                except Exception:
+                    ledger_cols = []
+            else:
+                try:
+                    ledger_cols = [r[0].lower() for r in conn.exec_driver_sql(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='oil_change_ledger' AND table_schema = current_schema()"
+                    ).fetchall()]
+                except Exception:
+                    ledger_cols = []
+
+            def _add_ledger_column(name: str, ddl: str):
+                if name in ledger_cols:
+                    return
+                if dialect == 'postgresql':
+                    ddl_stmt = f"ALTER TABLE oil_change_ledger ADD COLUMN IF NOT EXISTS {ddl}"
+                else:
+                    ddl_stmt = f"ALTER TABLE oil_change_ledger ADD COLUMN {ddl}"
+                try:
+                    conn.exec_driver_sql(ddl_stmt)
+                    ledger_cols.append(name)
+                    print(f"Added column '{name}' to oil_change_ledger")
+                except Exception as ce:
+                    msg = str(ce).lower()
+                    if any(tok in msg for tok in ['duplicate', 'exists', 'already']):
+                        pass
+                    else:
+                        print(f"Warning adding ledger column {name}: {ce}")
+
+            _add_ledger_column('oil_weight', "oil_weight VARCHAR(10)")
+            _add_ledger_column('oil_quarts', "oil_quarts FLOAT")
+            _add_ledger_column('mileage', "mileage INTEGER")
+            _add_ledger_column('vehicle_id', "vehicle_id INTEGER")
 
             # contacts table
             try:
@@ -119,6 +182,15 @@ def _ensure_vehicle_columns():
 
 _ensure_vehicle_columns()
 # --- end auto-migration ---
+
+# Expose an admin endpoint to re-run migration if needed (e.g., after failed deploy)
+@app.post('/admin/migrate')
+def admin_migrate():  # pragma: no cover - operational aid
+    try:
+        _ensure_vehicle_columns()
+        return {'ok': True, 'message': 'Migration attempted'}
+    except Exception as e:
+        return {'ok': False, 'error': str(e)}
 
 # start periodic backup
 try:
