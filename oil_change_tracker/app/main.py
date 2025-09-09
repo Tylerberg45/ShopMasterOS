@@ -217,15 +217,17 @@ def get_customer(customer_id: int, request: Request, db: Session = Depends(get_d
             vehicle_oil_changes[vehicle.id] = counts_dict.get(vehicle.id, 0)
             vehicle_last_mileage[vehicle.id] = mileage_dict.get(vehicle.id)
     
+    # Provide both legacy key 'ledger' used by template and explicit 'ledger_entries'
     return templates.TemplateResponse("customer.html", {
-        "request": request, 
-        "c": c, 
-        "vehicles": vehicles, 
+        "request": request,
+        "c": c,
+        "vehicles": vehicles,
         "plan": plan,  # Single plan object instead of plans list
-        "contacts": contacts, 
-        "ledger_entries": ledger_entries, 
+        "contacts": contacts,
+        "ledger": ledger_entries,  # For template loop
+        "ledger_entries": ledger_entries,  # For future explicit usage
         "vehicle_last_mileage": vehicle_last_mileage,
-        "vehicle_oil_changes": vehicle_oil_changes  # Add missing vehicle_oil_changes
+        "vehicle_oil_changes": vehicle_oil_changes
     })
 
 @app.post("/customers/ui/edit")
