@@ -102,24 +102,25 @@
     </thead>
     <tbody>
     {% for e in ledger %}
-      <tr>
-        <td>{{ e.service_date.strftime('%m/%d/%Y') if e.service_date else (e.created_at.strftime('%m/%d/%Y') if e.created_at else 'N/A') }}</td>
-        <td>{{ e.delta }}</td>
-        <td>{% if e.vehicle_id %}
+      <tr id="ledger_row_{{ e.id }}" data-entry-id="{{ e.id }}">
+        <td class="ledger-date" data-value="{{ e.created_at.strftime('%Y-%m-%d') if e.created_at }}">{{ e.service_date.strftime('%m/%d/%Y') if e.service_date else (e.created_at.strftime('%m/%d/%Y') if e.created_at else 'N/A') }}</td>
+        <td class="ledger-delta">{{ e.delta }}</td>
+        <td class="ledger-vehicle">
+          {% if e.vehicle_id %}
             {% for v in vehicles %}
               {% if v.id == e.vehicle_id %}
                 {{ v.year }} {{ v.make }} {{ v.model }}{% if v.plate %} ({{ v.plate }}){% endif %}
               {% endif %}
             {% endfor %}
-            {% endif %}</td>
-        <td>{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
-        <td>{{ e.note }}</td>
-        <td>
-          <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="openEditLedgerModal({{ e.id }})">Edit</button>
-          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" 
-                onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ abs(e.delta) }} oil change{% if abs(e.delta) != 1 %}s{% endif %}.')">
+          {% endif %}
+        </td>
+        <td class="ledger-mileage" data-value="{{ e.mileage if e.mileage }}">{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
+        <td class="ledger-note" data-value="{{ e.note }}">{{ e.note }}</td>
+        <td class="ledger-actions">
+          <button type="button" class="btn btn-outline-secondary btn-sm me-1 ledger-edit-btn" data-entry-id="{{ e.id }}">Edit</button>
+          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ abs(e.delta) }} oil change{% if abs(e.delta) != 1 %}s{% endif %}.')">
             <button type="submit" class="btn btn-danger btn-sm">
-              <i class="bi bi-trash"></i> Remove
+              <i class="bi bi-trash"></i>
             </button>
           </form>
         </td>
@@ -502,6 +503,93 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+});
+
+// Inline ledger editing
+function enterLedgerEdit(id) {
+  const row = document.getElementById(`ledger_row_${id}`);
+  if (!row || row.classList.contains('editing')) return;
+  row.classList.add('editing');
+  const dateCell = row.querySelector('.ledger-date');
+  const mileageCell = row.querySelector('.ledger-mileage');
+  const noteCell = row.querySelector('.ledger-note');
+  const actionsCell = row.querySelector('.ledger-actions');
+  const dateValue = dateCell.getAttribute('data-value') || '';
+  const mileageValue = mileageCell.getAttribute('data-value') || '';
+  const noteValue = noteCell.getAttribute('data-value') || '';
+  dateCell.innerHTML = `<input type="date" class="form-control form-control-sm" value="${dateValue}">`;
+  mileageCell.innerHTML = `<input type="number" class="form-control form-control-sm" value="${mileageValue}" style="width:100px">`;
+  noteCell.innerHTML = `<input type="text" class="form-control form-control-sm" value="${noteValue}" maxlength="255">`;
+  actionsCell.innerHTML = `
+    <button class="btn btn-sm btn-primary me-1" onclick="saveLedgerEdit(${id})">Save</button>
+    <button class="btn btn-sm btn-secondary" onclick="cancelLedgerEdit(${id})">Cancel</button>
+  `;
+}
+
+function cancelLedgerEdit(id) {
+  const row = document.getElementById(`ledger_row_${id}`);
+  if (!row) return;
+  row.classList.remove('editing');
+  // Re-fetch JSON to restore canonical view
+  fetch(`/ui/customer/{{ c.id }}/ledger/${id}/json`).then(r=>r.json()).then(data => {
+    if (data.error) return;
+    const dateCell = row.querySelector('.ledger-date');
+    const mileageCell = row.querySelector('.ledger-mileage');
+    const noteCell = row.querySelector('.ledger-note');
+    const actionsCell = row.querySelector('.ledger-actions');
+    dateCell.setAttribute('data-value', data.date || '');
+    dateCell.textContent = data.date ? new Date(data.date).toLocaleDateString() : 'N/A';
+    mileageCell.setAttribute('data-value', data.mileage || '');
+    mileageCell.textContent = data.mileage || '';
+    noteCell.setAttribute('data-value', data.note || '');
+    noteCell.textContent = data.note || '';
+    actionsCell.innerHTML = `
+      <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="enterLedgerEdit(${id})">Edit</button>
+      <form method="post" action="/ui/customer/{{ c.id }}/ledger/${id}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will ${data.delta < 0 ? 'add back' : 'remove'} ${Math.abs(data.delta)} oil change${Math.abs(data.delta) !== 1 ? 's' : ''}.')">
+        <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-trash"></i></button>
+      </form>`;
+  });
+}
+
+async function saveLedgerEdit(id) {
+  const row = document.getElementById(`ledger_row_${id}`);
+  if (!row) return;
+  const dateInput = row.querySelector('.ledger-date input');
+  const mileageInput = row.querySelector('.ledger-mileage input');
+  const noteInput = row.querySelector('.ledger-note input');
+  const formData = new FormData();
+  if (mileageInput.value) formData.append('mileage', mileageInput.value);
+  if (dateInput.value) formData.append('service_date', dateInput.value);
+  formData.append('note', noteInput.value);
+  const resp = await fetch(`/ui/customer/{{ c.id }}/ledger/${id}/edit-json`, { method: 'POST', body: formData });
+  const data = await resp.json();
+  if (!data.success) { alert(data.error || 'Failed to save'); return; }
+  // Update row
+  row.classList.remove('editing');
+  const dateCell = row.querySelector('.ledger-date');
+  const mileageCell = row.querySelector('.ledger-mileage');
+  const noteCell = row.querySelector('.ledger-note');
+  const actionsCell = row.querySelector('.ledger-actions');
+  dateCell.setAttribute('data-value', data.entry.date || '');
+  dateCell.textContent = data.entry.date ? new Date(data.entry.date).toLocaleDateString() : 'N/A';
+  mileageCell.setAttribute('data-value', data.entry.mileage || '');
+  mileageCell.textContent = data.entry.mileage || '';
+  noteCell.setAttribute('data-value', data.entry.note || '');
+  noteCell.textContent = data.entry.note || '';
+  actionsCell.innerHTML = `
+    <button type="button" class="btn btn-outline-secondary btn-sm me-1" onclick="enterLedgerEdit(${id})">Edit</button>
+    <form method="post" action="/ui/customer/{{ c.id }}/ledger/${id}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will ${data.entry.delta < 0 ? 'add back' : 'remove'} ${Math.abs(data.entry.delta)} oil change${Math.abs(data.entry.delta) !== 1 ? 's' : ''}.')">
+      <button type="submit" class="btn btn-danger btn-sm"><i class="bi bi-trash"></i></button>
+    </form>`;
+}
+
+// Delegated click handling for ledger edit buttons
+document.addEventListener('click', function(ev){
+  const btn = ev.target.closest('.ledger-edit-btn');
+  if (btn) {
+    const id = btn.getAttribute('data-entry-id');
+    if (id) enterLedgerEdit(id);
+  }
 });
 
 function openUseOilChangeModal(vehicleId, vehicleInfo, lastMileage) {

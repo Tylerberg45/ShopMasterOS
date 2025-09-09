@@ -537,6 +537,55 @@ def ui_edit_ledger_entry(customer_id: int, entry_id: int, mileage: int = Form(No
         db.rollback()
         return RedirectResponse(f"/ui/customer/{customer_id}?error=Failed+to+edit+entry", status_code=303)
 
+@app.post("/ui/customer/{customer_id}/ledger/{entry_id}/edit-json")
+def ui_edit_ledger_entry_json(
+    customer_id: int,
+    entry_id: int,
+    mileage: int = Form(None),
+    service_date: str = Form(None),
+    oil_weight: str = Form(""),
+    oil_quarts: float = Form(None),
+    note: str = Form(""),
+    db: Session = Depends(get_db)
+):
+    """JSON variant for inline editing in UI (no page reload)."""
+    entry = db.get(OilChangeLedger, entry_id)
+    if not entry or entry.customer_id != customer_id:
+        return JSONResponse({"success": False, "error": "Entry not found"}, status_code=404)
+    try:
+        if mileage is not None:
+            entry.mileage = mileage
+        ow = oil_weight.strip()
+        entry.oil_weight = ow or None
+        if oil_quarts is not None:
+            entry.oil_quarts = oil_quarts
+        entry.note = note.strip()[:255]
+        if service_date:
+            try:
+                base = datetime.strptime(service_date, '%Y-%m-%d')
+                entry.created_at = base
+            except ValueError:
+                return JSONResponse({"success": False, "error": "Bad date format"}, status_code=400)
+        db.add(entry)
+        db.commit()
+        db.refresh(entry)
+        return {
+            "success": True,
+            "entry": {
+                "id": entry.id,
+                "mileage": entry.mileage,
+                "oil_weight": entry.oil_weight,
+                "oil_quarts": entry.oil_quarts,
+                "note": entry.note,
+                "delta": entry.delta,
+                "date": entry.created_at.strftime('%Y-%m-%d') if entry.created_at else None
+            }
+        }
+    except Exception as e:
+        print(f"Error editing ledger entry (json) {entry_id}: {e}")
+        db.rollback()
+        return JSONResponse({"success": False, "error": "Failed to edit entry"}, status_code=500)
+
 @app.get("/admin/duplicates", response_class=HTMLResponse)
 async def admin_duplicates(request: Request, db: Session = Depends(get_db)):
     try:
