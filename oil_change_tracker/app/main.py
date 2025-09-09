@@ -23,7 +23,36 @@ from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 
 Base.metadata.create_all(bind=engine)
+# Ensure critical customer columns exist as early as possible (works for Postgres & SQLite)
+from sqlalchemy import inspect
+def _ensure_core_customer_columns():
+    try:
+        with engine.connect() as conn:
+            insp = inspect(conn)
+            try:
+                cols = {c['name'].lower() for c in insp.get_columns('customers')}
+            except Exception:
+                cols = set()
+            dialect = conn.dialect.name
+            additions = [
+                ('landline', "VARCHAR(20) DEFAULT ''"),
+                ('email', "VARCHAR(255) DEFAULT ''"),
+            ]
+            for name, ddl in additions:
+                if name not in cols:
+                    try:
+                        if dialect == 'postgresql':
+                            conn.exec_driver_sql(f"ALTER TABLE customers ADD COLUMN IF NOT EXISTS {name} {ddl}")
+                        else:
+                            conn.exec_driver_sql(f"ALTER TABLE customers ADD COLUMN {name} {ddl}")
+                        print(f"(early) Added missing customer column '{name}'")
+                    except Exception as e:
+                        # Non-fatal; later migration will retry
+                        print(f"Warning ensuring early column {name}: {e}")
+    except Exception as e:
+        print(f"Early customer column ensure failed: {e}")
 
+_ensure_core_customer_columns()
 # --- lightweight SQLite auto-migration for new columns ---
 def _ensure_vehicle_columns():
     try:
