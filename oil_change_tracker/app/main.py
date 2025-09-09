@@ -38,17 +38,36 @@ def _ensure_vehicle_columns():
                 conn.exec_driver_sql("ALTER TABLE vehicles ADD COLUMN oil_weight VARCHAR(10) DEFAULT ''")
 
             # Customers new cols (handle SQLite vs Postgres)
-            try:
-                customer_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
-                pragma_mode = True
-            except Exception:
-                # Fallback for Postgres
-                pragma_mode = False
-                customer_cols = [r[0].lower() for r in conn.exec_driver_sql("SELECT column_name FROM information_schema.columns WHERE table_name='customers'").fetchall()]
+            customer_cols = []
+            dialect = conn.dialect.name
+            if dialect == 'sqlite':
+                try:
+                    customer_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('customers')").fetchall()]
+                except Exception:
+                    customer_cols = []
+            else:  # postgres / others
+                try:
+                    customer_cols = [r[0].lower() for r in conn.exec_driver_sql(
+                        "SELECT column_name FROM information_schema.columns WHERE table_name='customers'"
+                    ).fetchall()]
+                except Exception:
+                    customer_cols = []
+
+            def _add_col(sql: str):  # attempt to add, ignore if exists
+                try:
+                    conn.exec_driver_sql(sql)
+                except Exception as ce:
+                    # Silently ignore duplicate/exists errors
+                    msg = str(ce).lower()
+                    if 'duplicate' in msg or 'exists' in msg or 'already' in msg:
+                        pass
+                    else:
+                        print(f"Column add warning: {ce}")
+
             if 'landline' not in customer_cols:
-                conn.exec_driver_sql("ALTER TABLE customers ADD COLUMN landline VARCHAR(20) DEFAULT ''")
+                _add_col("ALTER TABLE customers ADD COLUMN landline VARCHAR(20) DEFAULT ''")
             if 'email' not in customer_cols:
-                conn.exec_driver_sql("ALTER TABLE customers ADD COLUMN email VARCHAR(255) DEFAULT ''")
+                _add_col("ALTER TABLE customers ADD COLUMN email VARCHAR(255) DEFAULT ''")
 
             # Ledger new cols
             ledger_cols = [r[1].lower() for r in conn.exec_driver_sql("PRAGMA table_info('oil_change_ledger')").fetchall()]
