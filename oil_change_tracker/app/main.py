@@ -571,6 +571,93 @@ def merge_customers(request: Request, primary_customer_id: int = Form(...), seco
         print(f"ERROR traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Merge failed: {str(e)}")
 
+@app.post("/admin/link-customer-to-vehicle")
+def link_customer_to_vehicle(
+    request: Request,
+    customer_id: int = Form(...),
+    vehicle_id: int = Form(...),
+    existing_customer_id: int = Form(...)
+):
+    """
+    Link a vehicle to an existing customer instead of creating a duplicate.
+    This transfers the vehicle from the new customer to the existing customer
+    and removes the new customer record.
+    """
+    from sqlalchemy.exc import SQLAlchemyError
+    
+    try:
+        print(f"DEBUG: Linking vehicle {vehicle_id} from customer {customer_id} to existing customer {existing_customer_id}")
+        
+        with SessionLocal() as db:
+            # Get the customers and vehicle
+            new_customer = db.get(Customer, customer_id)
+            existing_customer = db.get(Customer, existing_customer_id)
+            vehicle = db.get(Vehicle, vehicle_id)
+            
+            if not new_customer or not existing_customer or not vehicle:
+                raise HTTPException(status_code=404, detail="Customer or vehicle not found")
+            
+            if customer_id == existing_customer_id:
+                raise HTTPException(status_code=400, detail="Cannot link customer to themselves")
+            
+            print(f"DEBUG: Transferring vehicle {vehicle.year} {vehicle.make} {vehicle.model} from {new_customer.first_name} {new_customer.last_name} to {existing_customer.first_name} {existing_customer.last_name}")
+            
+            # Transfer the vehicle to the existing customer
+            vehicle.customer_id = existing_customer_id
+            
+            # Transfer any oil change plans from new customer to existing customer
+            plans_to_transfer = db.query(OilChangePlan).filter(OilChangePlan.customer_id == customer_id).all()
+            for plan in plans_to_transfer:
+                print(f"DEBUG: Transferring oil change plan to existing customer {existing_customer_id}")
+                # Check if existing customer already has an active plan
+                existing_plan = db.query(OilChangePlan).filter(
+                    OilChangePlan.customer_id == existing_customer_id,
+                    OilChangePlan.active == True
+                ).first()
+                
+                if existing_plan:
+                    # Merge the plans by adding remaining counts
+                    existing_plan.total_allowed += plan.total_allowed
+                    existing_plan.remaining += plan.remaining
+                    print(f"DEBUG: Merged plans - existing customer now has {existing_plan.remaining} remaining oil changes")
+                    # Delete the new customer's plan
+                    db.delete(plan)
+                else:
+                    # Transfer the plan to existing customer
+                    plan.customer_id = existing_customer_id
+            
+            # Transfer any contacts from new customer to existing customer
+            contacts_to_transfer = db.query(Contact).filter(Contact.customer_id == customer_id).all()
+            for contact in contacts_to_transfer:
+                print(f"DEBUG: Transferring contact to existing customer {existing_customer_id}")
+                contact.customer_id = existing_customer_id
+            
+            # Transfer any oil change history from new customer to existing customer
+            history_to_transfer = db.query(OilChangeLedger).filter(OilChangeLedger.customer_id == customer_id).all()
+            for history in history_to_transfer:
+                print(f"DEBUG: Transferring oil change history to existing customer {existing_customer_id}")
+                history.customer_id = existing_customer_id
+            
+            # Delete the new customer record
+            print(f"DEBUG: Deleting new customer {customer_id}")
+            db.delete(new_customer)
+            
+            # Commit all changes
+            db.commit()
+            
+            print(f"DEBUG: Successfully linked vehicle to existing customer - redirecting to customer {existing_customer_id}")
+            # Redirect to the existing customer's page
+            return RedirectResponse(url=f"/ui/customer/{existing_customer_id}", status_code=303)
+            
+    except SQLAlchemyError as e:
+        print(f"ERROR in link_customer_to_vehicle (SQLAlchemy): {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+    except Exception as e:
+        print(f"ERROR in link_customer_to_vehicle: {str(e)}")
+        import traceback
+        print(f"ERROR traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Link operation failed: {str(e)}")
+
 @app.get("/info")
 def info():
     return get_host_info()
