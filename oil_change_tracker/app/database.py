@@ -59,7 +59,7 @@ def _build_engine(url: str):
     print(f"🗄️  Initializing DB engine: {_mask_url(url)}")
     return create_engine(
         url,
-        echo=False,
+        echo=True,  # Enable SQL query logging for debugging
         future=True,
         pool_pre_ping=True,
         pool_size=5,
