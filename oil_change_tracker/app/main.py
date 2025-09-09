@@ -13,7 +13,12 @@ import re
 from urllib.parse import urlencode
 
 app = FastAPI(title="Oil Change Tracker (MVP)")
-templates = Jinja2Templates(directory="app/templates")
+from pathlib import Path
+import os
+
+# Resolve templates directory relative to this file so deployment CWD does not matter
+_BASE_DIR = Path(__file__).resolve().parent
+templates = Jinja2Templates(directory=str(_BASE_DIR / "templates"))
 from .services.auto_backup import start_periodic_backup, backup_once
 from .services.netinfo import get_host_info
 
@@ -468,3 +473,9 @@ def db_health():
         except Exception:
             v = None
     return {"ok": True, "db_version": v}
+
+# Optional debug endpoint to list registered routes (enabled when APP_DEBUG=1)
+if os.environ.get("APP_DEBUG") == "1":
+    @app.get("/routes")
+    def list_routes():  # pragma: no cover - diagnostic only
+        return {"routes": [getattr(r, 'path', str(r)) for r in app.router.routes]}
