@@ -42,6 +42,44 @@ if os.path.exists(alembic_ini_path):
 else:
     print(f"⚠️ Alembic config not found at {alembic_ini_path}, skipping migrations")
 
+# Additional safety check: ensure landline and email columns exist
+# This is a failsafe for cases where migration state is inconsistent
+def ensure_customer_columns():
+    """Ensure customers table has landline and email columns"""
+    try:
+        from sqlalchemy import text, inspect
+        
+        with engine.connect() as conn:
+            inspector = inspect(conn)
+            
+            # Check if customers table exists
+            if 'customers' in inspector.get_table_names():
+                columns = [col['name'] for col in inspector.get_columns('customers')]
+                print(f"🔍 Checking customers table columns: {columns}")
+                
+                # Add landline column if missing
+                if 'landline' not in columns:
+                    print("➕ Adding missing landline column...")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN landline VARCHAR(20)"))
+                    conn.commit()
+                    print("✅ Added landline column")
+                
+                # Add email column if missing  
+                if 'email' not in columns:
+                    print("➕ Adding missing email column...")
+                    conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR(255)"))
+                    conn.commit()
+                    print("✅ Added email column")
+                    
+                if 'landline' in columns and 'email' in columns:
+                    print("✅ All required columns exist")
+                    
+    except Exception as e:
+        print(f"⚠️ Error checking/adding columns: {e}")
+
+# Run the column check
+ensure_customer_columns()
+
 app.include_router(customers_router.router)
 app.include_router(vehicles_router.router)
 
