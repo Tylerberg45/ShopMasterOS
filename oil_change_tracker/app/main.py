@@ -27,9 +27,20 @@ from .services.netinfo import get_host_info
 Base.metadata.create_all(bind=engine)
 from alembic.config import Config
 from alembic import command
+import os
 
-alembic_cfg = Config("alembic.ini")
-command.upgrade(alembic_cfg, "head")
+# Get the path to alembic.ini relative to the app directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+alembic_ini_path = os.path.join(os.path.dirname(current_dir), "alembic.ini")
+
+if os.path.exists(alembic_ini_path):
+    alembic_cfg = Config(alembic_ini_path)
+    try:
+        command.upgrade(alembic_cfg, "head")
+    except Exception as e:
+        print(f"⚠️ Alembic migration failed: {e}")
+else:
+    print(f"⚠️ Alembic config not found at {alembic_ini_path}, skipping migrations")
 
 app.include_router(customers_router.router)
 app.include_router(vehicles_router.router)
