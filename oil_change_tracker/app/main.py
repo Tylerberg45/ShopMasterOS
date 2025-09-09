@@ -236,8 +236,8 @@ def _ensure_vehicle_columns():
     except Exception:
         pass
 
+# Run migration immediately on startup
 _ensure_vehicle_columns()
-# --- end auto-migration ---
 
 # Expose an admin endpoint to re-run migration if needed (e.g., after failed deploy)
 @app.post('/admin/migrate')
@@ -248,14 +248,14 @@ def admin_migrate():  # pragma: no cover - operational aid
     except Exception as e:
         return {'ok': False, 'error': str(e)}
 
+app.include_router(customers_router.router)
+app.include_router(vehicles_router.router)
+
 # start periodic backup
 try:
     start_periodic_backup(interval_hours=6)
 except Exception as e:
     print(f"Backup scheduler failed: {e}")
-
-app.include_router(customers_router.router)
-app.include_router(vehicles_router.router)
 
 def get_abs(value):
     return abs(value)
