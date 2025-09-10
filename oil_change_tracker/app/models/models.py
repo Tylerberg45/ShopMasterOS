@@ -13,7 +13,7 @@ class Customer(Base):
     landline: Mapped[str] = mapped_column(String(20), default="")
     email: Mapped[str] = mapped_column(String(255), default="")
 
-    vehicles = relationship("Vehicle", back_populates="owner", cascade="all, delete-orphan")
+    vehicles = relationship("Vehicle", foreign_keys="[Vehicle.customer_id]", back_populates="owner", cascade="all, delete-orphan")
     plans = relationship("OilChangePlan", back_populates="customer", cascade="all, delete-orphan")
     ledger_entries = relationship("OilChangeLedger", back_populates="customer", cascade="all, delete-orphan")
     contacts = relationship("Contact", back_populates="customer", cascade="all, delete-orphan")
@@ -31,6 +31,8 @@ class Vehicle(Base):
     __tablename__ = "vehicles"
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"))
+    # Optional primary driver (can point to any customer)
+    driver_id: Mapped[int | None] = mapped_column(ForeignKey("customers.id"), nullable=True)
     year: Mapped[str] = mapped_column(String(10), default="")
     make: Mapped[str] = mapped_column(String(50), default="")
     model: Mapped[str] = mapped_column(String(100), default="")
@@ -40,7 +42,8 @@ class Vehicle(Base):
     oil_capacity_quarts: Mapped[str] = mapped_column(String(10), default="")
     oil_weight: Mapped[str] = mapped_column(String(10), default="")
 
-    owner = relationship("Customer", back_populates="vehicles")
+    owner = relationship("Customer", foreign_keys=[customer_id], back_populates="vehicles")
+    driver = relationship("Customer", foreign_keys=[driver_id])
 
 class OilChangePlan(Base):
     __tablename__ = "oil_change_plans"
@@ -89,6 +92,8 @@ class OilChangeLedger(Base):
     delta: Mapped[int] = mapped_column(Integer)  # -1 for use, +4 for tire purchase
     note: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, server_default=func.now())
+    # Manual ordering support for UI drag/drop (lower value displayed first). Null = fallback ordering.
+    order_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     customer = relationship("Customer", back_populates="ledger_entries")
     vehicle = relationship("Vehicle")

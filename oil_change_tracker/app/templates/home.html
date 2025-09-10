@@ -1,49 +1,142 @@
 {% extends "layout.html" %}
 {% block content %}
-<div class="mb-4">
-  <h1 class="mb-2">Oil Change Tracker</h1>
+<div class="mb-5">
+  <div class="text-center">
+    <h1 class="mb-3 fw-bold">
+      <i class="fas fa-oil-can me-2 text-primary"></i>
+      Oil Change Tracker
+    </h1>
+    <p class="text-muted lead">Track and manage customer oil change records with ease</p>
+  </div>
 </div>
 
-<form method="post" action="/ui/search" class="row g-3 mb-4 align-items-end">
-  <div class="col-md-8">
-    <label for="searchInput" class="form-label">Search by name or phone</label>
-    <input id="searchInput" name="name_or_phone" class="form-control" placeholder="First Last or Phone">
-  </div>
-  <div class="col-md-4">
-    <button type="submit" class="btn btn-primary w-100">Search</button>
-  </div>
-</form>
-
-<div class="card mb-4">
+<!-- Search Section -->
+<div class="card glass mb-4 glow-primary">
   <div class="card-body">
-    <h3 class="card-title">Add New Customer</h3>
-    <form method="post" action="/ui/customer/new" class="row g-2 align-items-end" id="addCustomerForm">
-      <div class="col-md-4">
-        <input id="firstNameInput" name="first_name" class="form-control" placeholder="First name" value="{{ pre_fill.first_name if pre_fill else '' }}">
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fas fa-search text-primary fs-4"></i>
+      <h4 class="mb-0">Find Customer</h4>
+    </div>
+    <form method="post" action="/ui/search" class="row g-3 align-items-end">
+      <div class="col-md-8">
+        <label for="searchInput" class="form-label fw-medium">Search by name or phone</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-search text-muted"></i></span>
+          <input id="searchInput" name="name_or_phone" class="form-control" placeholder="Enter customer name or phone number...">
+        </div>
       </div>
       <div class="col-md-4">
-        <input id="lastNameInput" name="last_name" class="form-control" placeholder="Last name" value="{{ pre_fill.last_name if pre_fill else '' }}">
-      </div>
-      <div class="col-md-4">
-        <input id="phoneInput" name="phone" class="form-control" placeholder="Phone (digits only)" value="{{ pre_fill.phone if pre_fill else '' }}">
-      </div>
-      <div class="col-md-4 d-grid">
-        <button type="submit" class="btn btn-success" id="createBtn">Create</button>
+        <button type="submit" class="btn btn-primary w-100">
+          <i class="fas fa-search me-2"></i>Search
+        </button>
       </div>
     </form>
   </div>
 </div>
 
-<div class="card mb-4 border-warning">
+<!-- Add New Customer Section -->
+<div class="card glass mb-4 glow-success">
   <div class="card-body">
-    <h3 class="card-title text-warning">
-      <i class="fas fa-users-cog"></i> Admin Tools
-    </h3>
-    <p class="card-text">Manage duplicate customers and system maintenance</p>
-    <div class="d-grid col-md-3">
-      <a href="/admin/duplicates" class="btn btn-warning">
-        <i class="fas fa-search"></i> Find Duplicates
-      </a>
+    <div class="d-flex align-items-center gap-2 mb-3">
+      <i class="fas fa-user-plus text-success fs-4"></i>
+      <h4 class="mb-0">Add New Customer</h4>
+    </div>
+    <form method="post" action="/ui/customer/new" class="row g-3 align-items-end" id="addCustomerForm">
+      <div class="col-md-3">
+        <label class="form-label fw-medium">First Name</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-user text-muted"></i></span>
+          <input id="firstNameInput" name="first_name" class="form-control" placeholder="First name" value="{{ pre_fill.first_name if pre_fill else '' }}">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-medium">Last Name</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-user text-muted"></i></span>
+          <input id="lastNameInput" name="last_name" class="form-control" placeholder="Last name" value="{{ pre_fill.last_name if pre_fill else '' }}">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label fw-medium">Phone Number</label>
+        <div class="input-group">
+          <span class="input-group-text"><i class="fas fa-phone text-muted"></i></span>
+          <input id="phoneInput" name="phone" class="form-control" placeholder="Phone number" value="{{ pre_fill.phone if pre_fill else '' }}">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <label class="form-label">&nbsp;</label>
+        <button type="submit" class="btn btn-success w-100" id="createBtn">
+          <i class="fas fa-plus me-2"></i>Create Customer
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Quick Stats Section -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card glass text-center">
+      <div class="card-body">
+        <i class="fas fa-users text-primary fs-2 mb-2"></i>
+        <h5 class="card-title">Total Customers</h5>
+        <p class="card-text fs-4 fw-bold text-primary">{{ customers|length if customers else 0 }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card glass text-center">
+      <div class="card-body">
+        <i class="fas fa-car text-success fs-2 mb-2"></i>
+        <h5 class="card-title">Vehicles Tracked</h5>
+        <p class="card-text fs-4 fw-bold text-success">{{ vehicle_count if vehicle_count else 0 }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card glass text-center">
+      <div class="card-body">
+        <i class="fas fa-wrench text-danger fs-2 mb-2"></i>
+        <h5 class="card-title">Oil Changes Done</h5>
+        <p class="card-text fs-4 fw-bold text-danger">{{ oil_changes_performed if oil_changes_performed else 0 }}</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card glass text-center">
+      <div class="card-body">
+        <i class="fas fa-shopping-cart text-info fs-2 mb-2"></i>
+        <h5 class="card-title">Plans Purchased</h5>
+        <p class="card-text fs-4 fw-bold text-info">{{ oil_changes_purchased if oil_changes_purchased else 0 }}</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Additional Analytics -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card glass">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="fas fa-chart-line text-warning fs-4"></i>
+          <h6 class="card-title mb-0">Recent Activity (30 Days)</h6>
+        </div>
+        <p class="card-text fs-5 fw-bold text-warning">{{ recent_activity if recent_activity else 0 }} transactions</p>
+        <small class="text-muted">Includes oil changes and plan purchases</small>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card glass">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <i class="fas fa-calculator text-secondary fs-4"></i>
+          <h6 class="card-title mb-0">Total Transactions</h6>
+        </div>
+        <p class="card-text fs-5 fw-bold text-secondary">{{ ledger_count if ledger_count else 0 }} entries</p>
+        <small class="text-muted">All oil change and purchase records</small>
+      </div>
     </div>
   </div>
 </div>
@@ -64,5 +157,352 @@
   })();
 </script>
 {% endif %}
+
+<script>
+// Enhanced home page interactions
+document.addEventListener('DOMContentLoaded', function() {
+    // Enhanced form validation and feedback
+    const addCustomerForm = document.getElementById('addCustomerForm');
+    const searchInput = document.getElementById('searchInput');
+    const createBtn = document.getElementById('createBtn');
+    
+    // Real-time search input enhancement
+    if (searchInput) {
+        let searchTimeout;
+        searchInput.addEventListener('input', function() {
+            clearTimeout(searchTimeout);
+            const value = this.value.trim();
+            
+            if (value.length > 0) {
+                this.classList.add('is-valid');
+                this.classList.remove('is-invalid');
+            } else {
+                this.classList.remove('is-valid', 'is-invalid');
+            }
+            
+            // Add subtle feedback for phone number detection
+            if (/^\d{10,}$/.test(value.replace(/\D/g, ''))) {
+                showToast('Phone number detected - will search by phone', 'info');
+            }
+        });
+        
+        // Enhanced search form submission
+        const searchForm = searchInput.closest('form');
+        if (searchForm) {
+            searchForm.addEventListener('submit', function(e) {
+                const searchValue = searchInput.value.trim();
+                if (!searchValue) {
+                    e.preventDefault();
+                    searchInput.focus();
+                    searchInput.classList.add('is-invalid');
+                    showToast('Please enter a name or phone number to search', 'error');
+                    return false;
+                }
+                
+                const submitBtn = this.querySelector('button[type="submit"]');
+                if (submitBtn) {
+                    setButtonLoading(submitBtn, true);
+                }
+            });
+        }
+    }
+    
+    // Enhanced customer form validation
+    if (addCustomerForm) {
+        const inputs = addCustomerForm.querySelectorAll('input');
+        
+        // Real-time validation for required fields
+        inputs.forEach(input => {
+            input.addEventListener('blur', function() {
+                validateField(this);
+            });
+            
+            input.addEventListener('input', function() {
+                if (this.classList.contains('is-invalid')) {
+                    validateField(this);
+                }
+            });
+        });
+        
+        // Phone number formatting
+        const phoneInput = document.getElementById('phoneInput');
+        if (phoneInput) {
+            phoneInput.addEventListener('input', function() {
+                let value = this.value.replace(/\D/g, '');
+                if (value.length >= 6) {
+                    value = value.replace(/(\d{3})(\d{3})(\d{4})/, '($1) $2-$3');
+                } else if (value.length >= 3) {
+                    value = value.replace(/(\d{3})(\d{3})/, '($1) $2');
+                }
+                this.value = value;
+            });
+        }
+        
+        // Enhanced form submission
+        addCustomerForm.addEventListener('submit', function(e) {
+            const isValid = validateCustomerForm(this);
+            if (!isValid) {
+                e.preventDefault();
+                return false;
+            }
+            
+            if (createBtn) {
+                setButtonLoading(createBtn, true);
+            }
+        });
+    }
+    
+    // Add scroll animations for cards
+    addScrollAnimations();
+    
+    // Add enhanced button hover effects
+    addButtonEnhancements();
+});
+
+function validateField(field) {
+    const value = field.value.trim();
+    const isRequired = field.hasAttribute('required') || field.id === 'phoneInput';
+    
+    if (isRequired && !value) {
+        field.classList.add('is-invalid');
+        field.classList.remove('is-valid');
+        return false;
+    } else if (value) {
+        // Phone validation
+        if (field.id === 'phoneInput') {
+            const phoneRegex = /^\(\d{3}\) \d{3}-\d{4}$/;
+            if (phoneRegex.test(value)) {
+                field.classList.remove('is-invalid');
+                field.classList.add('is-valid');
+                return true;
+            } else {
+                field.classList.add('is-invalid');
+                field.classList.remove('is-valid');
+                return false;
+            }
+        } else {
+            field.classList.remove('is-invalid');
+            field.classList.add('is-valid');
+            return true;
+        }
+    } else {
+        field.classList.remove('is-invalid', 'is-valid');
+        return true;
+    }
+}
+
+function validateCustomerForm(form) {
+    const firstName = form.querySelector('#firstNameInput');
+    const lastName = form.querySelector('#lastNameInput');
+    const phone = form.querySelector('#phoneInput');
+    
+    let isValid = true;
+    
+    // Validate required fields
+    if (!validateField(firstName)) isValid = false;
+    if (!validateField(lastName)) isValid = false;
+    if (!validateField(phone)) isValid = false;
+    
+    if (!isValid) {
+        showToast('Please fill in all required fields correctly', 'error');
+        
+        // Focus first invalid field
+        const firstInvalid = form.querySelector('.is-invalid');
+        if (firstInvalid) {
+            firstInvalid.focus();
+            firstInvalid.style.animation = 'shake 0.5s ease-in-out';
+            setTimeout(() => {
+                firstInvalid.style.animation = '';
+            }, 500);
+        }
+    }
+    
+    return isValid;
+}
+
+function addScrollAnimations() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.style.animation = 'fadeInUp 0.6s ease-out';
+                observer.unobserve(entry.target);
+            }
+        });
+    });
+    
+    const cards = document.querySelectorAll('.card');
+    cards.forEach((card, index) => {
+        card.style.animationDelay = `${index * 0.1}s`;
+        observer.observe(card);
+    });
+}
+
+function addButtonEnhancements() {
+    const buttons = document.querySelectorAll('.btn');
+    buttons.forEach(button => {
+        button.addEventListener('mouseenter', function() {
+            // Reduced movement for better UX
+            this.style.transform = 'translateY(-1px)';
+        });
+        
+        button.addEventListener('mouseleave', function() {
+            this.style.transform = 'translateY(0)';
+        });
+    });
+}
+
+// Enhanced toast system for home page
+function showToast(message, type = 'info') {
+    const toastContainer = getOrCreateToastContainer();
+    const toastId = 'toast-' + Date.now();
+    
+    const toast = document.createElement('div');
+    toast.id = toastId;
+    toast.className = `alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} toast-notification`;
+    toast.style.cssText = `
+        position: relative;
+        min-width: 300px;
+        margin-bottom: 10px;
+        border: none;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+        animation: slideInRight 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+    `;
+    
+    toast.innerHTML = `
+        <div class="d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center">
+                <i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'} me-2 fs-5"></i>
+                <span>${message}</span>
+            </div>
+            <button type="button" class="btn-close ms-3" onclick="dismissToast('${toastId}')" aria-label="Close"></button>
+        </div>
+    `;
+    
+    toastContainer.appendChild(toast);
+    
+    setTimeout(() => dismissToast(toastId), type === 'error' ? 5000 : 3000);
+}
+
+function getOrCreateToastContainer() {
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        container.style.cssText = `
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+            max-width: 400px;
+        `;
+        document.body.appendChild(container);
+    }
+    return container;
+}
+
+function dismissToast(toastId) {
+    const toast = document.getElementById(toastId);
+    if (toast) {
+        toast.style.animation = 'slideOutRight 0.3s cubic-bezier(0.55, 0.055, 0.675, 0.19)';
+        setTimeout(() => toast.remove(), 300);
+    }
+}
+
+function setButtonLoading(button, loading = true) {
+    if (loading) {
+        button.disabled = true;
+        const originalText = button.innerHTML;
+        button.dataset.originalText = originalText;
+        button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading...';
+        button.classList.add('btn-loading');
+    } else {
+        button.disabled = false;
+        button.innerHTML = button.dataset.originalText || button.innerHTML;
+        button.classList.remove('btn-loading');
+    }
+}
+
+// Add enhanced animations CSS
+if (!document.getElementById('home-animations')) {
+    const homeAnimations = document.createElement('style');
+    homeAnimations.id = 'home-animations';
+    homeAnimations.textContent = `
+        @keyframes slideInRight {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+        
+        @keyframes slideOutRight {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+        }
+        
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+        
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        @keyframes fadeOutDown {
+            from {
+                opacity: 1;
+                transform: translateY(0);
+            }
+            to {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+        }
+        
+        .btn {
+            transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+        }
+        
+        .form-control:focus {
+            transform: scale(1.02);
+        }
+        
+        .toast-notification {
+            transition: all 0.2s ease;
+        }
+        
+        .toast-notification:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+        }
+        
+        .btn-loading {
+            pointer-events: none;
+            opacity: 0.8;
+        }
+    `;
+    document.head.appendChild(homeAnimations);
+}
+</script>
 
 {% endblock %}

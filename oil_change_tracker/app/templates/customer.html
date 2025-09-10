@@ -1,133 +1,516 @@
 ~
 {% extends "layout.html" %}
 {% block content %}
-<div class="mb-4">
-  <h2 class="mb-1">{{ c.first_name }} {{ c.last_name }}</h2>
-  <div class="muted mb-2">Phone: {{ c.phone }}</div>
-</div>
-
-  <div class="card mb-4">
-  <div class="card-body">
-    <h4 class="card-title">Free Oil Changes</h4>
+<!-- Oil Change Plan Summary at top -->
+<div class="card mb-4 glass glow-primary">
+  <div class="card-body py-3">
     {% if plan %}
-      <div class="mb-3">
-        <span class="pill">Remaining: {{ plan.remaining }}</span>
-        <form method="post" action="/ui/customer/{{ c.id }}/add-four" class="d-inline ms-3">
-          <button class="btn btn-success" type="button" onclick="promptAddOilChanges()">Add Oil Changes</button>
-        </form>
-        <button class="btn btn-outline-primary ms-2" onclick="openEditPlan({{ plan.remaining }})">Edit Free Oil Changes</button>
+      <div class="d-flex align-items-center gap-3 flex-wrap">
+        <div class="d-flex align-items-center gap-2">
+          <i class="fas fa-oil-can text-primary"></i>
+          <span class="pill glow-success">Oil Changes Remaining: <strong>{{ plan.remaining }}</strong></span>
+        </div>
+        <span class="pill pill-secondary">Used: {{ plan.total_allowed - plan.remaining }}</span>
+        <span class="text-muted">of <strong>{{ plan.total_allowed }}</strong> total</span>
+        <div class="ms-auto">
+          <div class="progress" style="width: 100px; height: 8px;">
+            <div class="progress-bar bg-success" role="progressbar" 
+                 style="width: {{ (plan.remaining / plan.total_allowed * 100) }}%"
+                 aria-valuenow="{{ plan.remaining }}" aria-valuemin="0" aria-valuemax="{{ plan.total_allowed }}"></div>
+          </div>
+        </div>
       </div>
     {% else %}
-      <div class="text-danger">No active free oil changes.</div>
+      <div class="d-flex align-items-center gap-2">
+        <i class="fas fa-exclamation-triangle text-warning"></i>
+        <span class="text-warning fw-medium">No active free oil change plan.</span>
+      </div>
     {% endif %}
   </div>
 </div>
 
-<div class="mb-4">
-  <h4>Vehicles</h4>
-  <table class="table table-striped align-middle">
-    <thead>
-      <tr>
-        <th>Plate</th><th>VIN</th>
-        <th>Year</th><th>Make</th><th>Model</th>
-        <th>Default Oil</th>
-        <th>Oil Changes Used</th>
-        <th>Actions</th>
-      </tr>
-    </thead>
-    <tbody>
-    {% for v in vehicles %}
-      <tr>
-        <td>{{ v.plate }}</td>
-        <td>{{ v.vin }}</td>
-        <td>{{ v.year }}</td>
-        <td>{{ v.make }}</td>
-        <td>{{ v.model }}</td>
-        <td>
-          {% if v.oil_weight %}{{ v.oil_weight }}{% endif %}
-          {% if v.oil_capacity_quarts %} ({{ v.oil_capacity_quarts }} qt){% endif %}
-        </td>
-        <td>{{ vehicle_oil_changes[v.id] }}</td>
-        <td>
-          <div class="d-flex gap-1">
-      {# Use data-* attributes to avoid inline JS errors when last mileage is None and to prevent quote escaping issues #}
-      <button class="btn btn-warning btn-sm flex-fill"
-        data-vehicle-id="{{ v.id }}"
-        data-vehicle-info="{{ v.year }} {{ v.make }} {{ v.model }}"
-        data-last-mileage="{{ vehicle_last_mileage[v.id]|default(0, true) }}"
-        onclick="openUseOilChangeModal(this.dataset.vehicleId, this.dataset.vehicleInfo, parseInt(this.dataset.lastMileage || '0'))"
-        title="Use 1 oil change - requires mileage">Use 1</button>
-            <button class="btn btn-success btn-sm flex-fill" onclick="openAddFourModal({{ v.id }}, '{{ v.year }} {{ v.make }} {{ v.model }}')" 
-                    title="Add 4 oil changes for tire purchase">Add 4</button>
-          </div>
-          
-          <div class="mt-1">
-            <button class="btn btn-outline-primary btn-sm w-100" onclick="openEditVehicle({{ v.id }}, '{{ v.plate }}', '{{ v.vin }}', '{{ v.year }}', '{{ v.make }}', '{{ v.model }}', '{{ v.oil_weight }}', '{{ v.oil_capacity_quarts }}')">Edit Vehicle</button>
-          </div>
-          {% if request.query_params.error %}
-          <div class="text-danger mt-1">{{ request.query_params.error }}</div>
-          {% endif %}
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
-</div>
+<ul class="nav nav-tabs mb-4" id="customerTabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-info-tab" data-bs-toggle="tab" data-bs-target="#tab-info" type="button" role="tab">
+      <i class="fas fa-user me-2"></i>Customer Info
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-vehicles-tab" data-bs-toggle="tab" data-bs-target="#tab-vehicles" type="button" role="tab">
+      <i class="fas fa-car me-2"></i>Vehicles
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-history-tab" data-bs-toggle="tab" data-bs-target="#tab-history" type="button" role="tab">
+      <i class="fas fa-history me-2"></i>History
+    </button>
+  </li>
+</ul>
 
-<div class="card mb-4">
-  <div class="card-body">
-    <h5 class="card-title">Add Vehicle</h5>
-    <form method="post" action="/ui/customer/{{ c.id }}/vehicle" class="row g-2 align-items-end">
-      <div class="col-md-2"><input name="plate" class="form-control" placeholder="License plate"></div>
-      <div class="col-md-2">
-        <div class="input-group">
-          <input name="vin" id="addVin" class="form-control" placeholder="VIN (optional)">
-          <button class="btn btn-outline-secondary" type="button" onclick="lookupVinForAdd()">🔍</button>
+<div class="tab-content">
+  <!-- Customer Info Pane -->
+  <div class="tab-pane fade show active" id="tab-info" role="tabpanel" aria-labelledby="tab-info-tab">
+    <!-- Duplicate Customer Suggestion Alert -->
+    {% if request.query_params.duplicate_suggestion == 'true' %}
+    <div class="alert alert-warning alert-dismissible fade show mb-4 glass" role="alert">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <i class="fas fa-search-plus text-warning fs-4"></i>
+        <h5 class="alert-heading mb-0">Possible Duplicate Customer Detected</h5>
+      </div>
+      <p class="mb-2">A customer with similar information was trying to be added:</p>
+      <div class="bg-light rounded p-3 mb-3">
+        <div class="row">
+          <div class="col-md-4">
+            <i class="fas fa-user me-1"></i>
+            <strong>Name:</strong> {{ request.query_params.contact_name }}
+          </div>
+          {% if request.query_params.phone %}
+          <div class="col-md-4">
+            <i class="fas fa-phone me-1"></i>
+            <strong>Phone:</strong> {{ request.query_params.phone }}
+          </div>
+          {% endif %}
+          {% if request.query_params.email %}
+          <div class="col-md-4">
+            <i class="fas fa-envelope me-1"></i>
+            <strong>Email:</strong> {{ request.query_params.email }}
+          </div>
+          {% endif %}
         </div>
       </div>
-      <div class="col-md-2"><input name="year" id="addYear" class="form-control" placeholder="Year"></div>
-      <div class="col-md-2"><input name="make" id="addMake" class="form-control" placeholder="Make"></div>
-      <div class="col-md-2"><input name="model" id="addModel" class="form-control" placeholder="Model"></div>
-      <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
-    </form>
-    <div class="muted mt-2">Enter vehicle details manually or use VIN lookup (🔍) to auto-populate.</div>
+      <p class="mb-3">Would you like to add this as an additional contact for <strong>{{ c.first_name }} {{ c.last_name }}</strong> instead?</p>
+      <div class="d-flex gap-2 flex-wrap">
+        <button class="btn btn-primary btn-sm" onclick="addDuplicateAsContact()">
+          <i class="fas fa-user-plus me-1"></i>Add as Contact
+        </button>
+        <button class="btn btn-outline-secondary btn-sm" onclick="createNewCustomerAnyway()">
+          <i class="fas fa-user-plus me-1"></i>Create Separate Customer
+        </button>
+      </div>
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    </div>
+    {% endif %}
+
+    <div class="card mb-4 glass">
+      <div class="card-body">
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="bg-primary rounded-circle p-3 d-flex align-items-center justify-content-center" style="width: 60px; height: 60px;">
+            <i class="fas fa-user text-white fs-4"></i>
+          </div>
+          <div>
+            <h4 class="card-title mb-1">{{ c.first_name }} {{ c.last_name }}</h4>
+            <p class="text-muted mb-0">Customer Profile</p>
+          </div>
+        </div>
+        
+        <div class="row">
+          <div class="col-md-6 mb-3">
+            <div class="d-flex align-items-center gap-2">
+              <i class="fas fa-phone text-primary"></i>
+              <div>
+                <small class="text-muted d-block">Primary Phone</small>
+                <strong>{{ c.phone }}</strong>
+              </div>
+            </div>
+          </div>
+          {% if c.email %}
+          <div class="col-md-6 mb-3">
+            <div class="d-flex align-items-center gap-2">
+              <i class="fas fa-envelope text-primary"></i>
+              <div>
+                <small class="text-muted d-block">Email Address</small>
+                <strong>{{ c.email }}</strong>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+          {% if c.landline %}
+          <div class="col-md-6 mb-3">
+            <div class="d-flex align-items-center gap-2">
+              <i class="fas fa-phone-alt text-primary"></i>
+              <div>
+                <small class="text-muted d-block">Landline</small>
+                <strong>{{ c.landline }}</strong>
+              </div>
+            </div>
+          </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    
+    <!-- Additional Contacts Section -->
+    <div class="card mb-4 glass">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="d-flex align-items-center gap-2">
+            <i class="fas fa-users text-primary"></i>
+            <h4 class="card-title mb-0">Additional Contacts</h4>
+            {% if contacts %}
+              <span class="badge bg-primary rounded-pill">{{ contacts|length }}</span>
+            {% endif %}
+          </div>
+          <button class="btn btn-outline-primary btn-sm" onclick="showAddContactModal()">
+            <i class="fas fa-plus me-1"></i>Add Contact
+          </button>
+          <button class="btn btn-outline-warning btn-sm ms-2" onclick="testModal()" title="Debug: Test modal manually">
+            <i class="fas fa-bug me-1"></i>Test Modal
+          </button>
+          <button class="btn btn-outline-info btn-sm ms-2" onclick="diagnoseModal()" title="Comprehensive modal diagnostics">
+            <i class="fas fa-stethoscope me-1"></i>Diagnose
+          </button>
+        </div>
+        
+        {% if contacts %}
+          <div class="table-responsive">
+            <table class="table table-sm table-hover">
+              <thead>
+                <tr>
+                  <th><i class="fas fa-user me-1"></i>Name</th>
+                  <th><i class="fas fa-briefcase me-1"></i>Role</th>
+                  <th><i class="fas fa-mobile-alt me-1"></i>Mobile</th>
+                  <th><i class="fas fa-phone me-1"></i>Landline</th>
+                  <th><i class="fas fa-envelope me-1"></i>Email</th>
+                  <th><i class="fas fa-star me-1"></i>Preferred</th>
+                  <th><i class="fas fa-cog me-1"></i>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for contact in contacts %}
+                <tr class="align-middle">
+                  <td>
+                    <div class="d-flex align-items-center gap-2">
+                      <div class="bg-light rounded-circle p-2 d-flex align-items-center justify-content-center" style="width: 35px; height: 35px;">
+                        <i class="fas fa-user-tie text-muted" style="font-size: 0.8rem;"></i>
+                      </div>
+                      <strong>{{ contact.contact_name }}</strong>
+                    </div>
+                  </td>
+                  <td>
+                    <span class="badge bg-light text-dark">{{ contact.role }}</span>
+                  </td>
+                  <td>{{ contact.mobile or '-' }}</td>
+                  <td>{{ contact.landline or '-' }}</td>
+                  <td>{{ contact.email or '-' }}</td>
+                  <td>
+                    {% if contact.preferred %}
+                      <span class="badge bg-success">
+                        <i class="fas fa-star me-1"></i>Preferred
+                      </span>
+                    {% else %}
+                      <span class="text-muted">-</span>
+                    {% endif %}
+                  </td>
+                  <td>
+                    <div class="d-flex gap-1">
+                      <button class="btn btn-outline-secondary btn-sm" 
+                        onclick="editContact({{ contact.id }}, '{{ contact.contact_name }}', '{{ contact.role }}', '{{ contact.mobile }}', '{{ contact.landline }}', '{{ contact.email }}', {{ contact.preferred|lower }}, '{{ contact.notes }}')"
+                        title="Edit contact">
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="btn btn-outline-danger btn-sm" 
+                        onclick="deleteContact({{ contact.id }}, '{{ contact.contact_name }}')"
+                        title="Delete contact">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {% if contact.notes %}
+                <tr>
+                  <td colspan="7" class="text-muted fst-italic ps-4">Notes: {{ contact.notes }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% else %}
+          <p class="text-muted">No additional contacts added.</p>
+        {% endif %}
+      </div>
+    </div>
+    
+    <div class="card mb-4">
+      <div class="card-body">
+        <h4 class="card-title">Manage Free Oil Changes</h4>
+        {% if plan %}
+          <div class="mb-3">
+            <form method="post" action="/ui/customer/{{ c.id }}/add-four" class="d-inline">
+              <button class="btn btn-success" type="button" onclick="promptAddOilChanges()">Add Oil Changes</button>
+            </form>
+            <button class="btn btn-outline-primary ms-2 edit-plan-btn" data-plan-remaining="{{ plan.remaining }}">Edit Plan</button>
+          </div>
+        {% else %}
+          <div class="text-danger">No active free oil changes.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Vehicles Pane -->
+  <div class="tab-pane fade" id="tab-vehicles" role="tabpanel" aria-labelledby="tab-vehicles-tab">
+    <div class="mb-4">
+      <h4>Vehicles</h4>
+      <table class="table table-striped align-middle">
+        <thead>
+          <tr>
+            <th>Plate</th><th>VIN</th>
+            <th>Year</th><th>Make</th><th>Model</th>
+            <th style="min-width:160px">Driver</th>
+            <th>Default Oil</th>
+            <th>Oil Changes Used</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for v in vehicles %}
+          <tr>
+            <td>{{ v.plate }}</td>
+            <td>{{ v.vin }}</td>
+            <td>{{ v.year }}</td>
+            <td>{{ v.make }}</td>
+            <td>{{ v.model }}</td>
+            <td>
+              <select class="form-select form-select-sm driver-select" data-vehicle-id="{{ v.id }}">
+                <option value="0" {% if not v.driver_id %}selected{% endif %}>-- None --</option>
+                
+                <!-- Customer as driver option -->
+                <option value="{{ c.id }}" {% if v.driver_id == c.id %}selected{% endif %}>
+                  {{ c.first_name }} {{ c.last_name }} (Owner)
+                </option>
+                
+                <!-- Contacts as driver options -->
+                {% if contacts %}
+                  {% for contact in contacts %}
+                    <option value="contact_{{ contact.id }}" {% if v.driver_id == ('contact_' + contact.id|string) %}selected{% endif %}>
+                      {{ contact.contact_name }} ({{ contact.role if contact.role else 'Contact' }})
+                    </option>
+                  {% endfor %}
+                {% endif %}
+              </select>
+            </td>
+            <td>
+              {% if v.oil_weight %}{{ v.oil_weight }}{% endif %}
+              {% if v.oil_capacity_quarts %} ({{ v.oil_capacity_quarts }} qt){% endif %}
+            </td>
+            <td>{{ vehicle_oil_changes[v.id] }}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-warning btn-sm flex-fill"
+                  data-vehicle-id="{{ v.id }}"
+                  data-vehicle-info="{{ v.year }} {{ v.make }} {{ v.model }}"
+                  data-last-mileage="{{ vehicle_last_mileage[v.id]|default(0, true) }}"
+                  onclick="openUseOilChangeModal(this.dataset.vehicleId, this.dataset.vehicleInfo, parseInt(this.dataset.lastMileage || '0'))"
+                  title="Use 1 oil change - requires mileage">Use 1</button>
+                <button class="btn btn-success btn-sm flex-fill veh-add-four-btn" data-vid="{{ v.id }}" data-vlabel="{{ v.year }} {{ v.make }} {{ v.model }}" title="Add 4 oil changes for tire purchase">Add 4</button>
+              </div>
+              <div class="mt-1">
+                <button class="btn btn-outline-primary btn-sm w-100 veh-edit-btn" 
+                  data-vid="{{ v.id }}" data-plate="{{ v.plate }}" data-vin="{{ v.vin }}" data-year="{{ v.year }}" data-make="{{ v.make }}" data-model="{{ v.model }}" data-oilw="{{ v.oil_weight }}" data-oilc="{{ v.oil_capacity_quarts }}">Edit Vehicle</button>
+              </div>
+              {% if request.query_params.error %}
+              <div class="text-danger mt-1">{{ request.query_params.error }}</div>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="card mb-4">
+      <div class="card-body">
+        <h5 class="card-title">Add Vehicle</h5>
+        <form method="post" action="/ui/customer/{{ c.id }}/vehicle" class="row g-2 align-items-end">
+          <div class="col-md-2"><input name="plate" class="form-control" placeholder="License plate"></div>
+          <div class="col-md-2">
+            <div class="input-group">
+              <input name="vin" id="addVin" class="form-control" placeholder="VIN (optional)">
+              <button class="btn btn-outline-secondary" type="button" onclick="lookupVinForAdd()">🔍</button>
+            </div>
+          </div>
+          <div class="col-md-2"><input name="year" id="addYear" class="form-control" placeholder="Year"></div>
+          <div class="col-md-2"><input name="make" id="addMake" class="form-control" placeholder="Make"></div>
+          <div class="col-md-2"><input name="model" id="addModel" class="form-control" placeholder="Model"></div>
+          <div class="col-md-2 d-grid"><button class="btn btn-primary" type="submit">Add</button></div>
+        </form>
+        <div class="muted mt-2">Enter vehicle details manually or use VIN lookup (🔍) to auto-populate.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- History Pane -->
+  <div class="tab-pane fade" id="tab-history" role="tabpanel" aria-labelledby="tab-history-tab">
+    <div class="card glass mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+          <div class="d-flex align-items-center gap-2">
+            <i class="fas fa-history text-primary"></i>
+            <h4 class="mb-0">Service History</h4>
+          </div>
+          <div class="d-flex gap-2 flex-wrap">
+            <a class="btn btn-outline-secondary btn-sm" href="/ui/customer/{{ c.id }}/print-log" target="_blank">
+              <i class="fas fa-print me-1"></i>Print / Export
+            </a>
+            <a class="btn btn-outline-success btn-sm glow-success" href="/ui/customer/{{ c.id }}/export-pdf">
+              <i class="fas fa-file-pdf me-1"></i>Download PDF
+            </a>
+            <button class="btn btn-outline-primary btn-sm" id="toggleDragBtn" type="button" onclick="toggleLedgerDrag()">
+              <i class="fas fa-arrows-alt me-1"></i><span id="dragBtnText">Enable Drag</span>
+            </button>
+          </div>
+        </div>
+        <div class="table-responsive">
+        <table class="table table-hover table-sm" id="ledgerTable">
+          <thead>
+            <tr>
+              <th><i class="fas fa-calendar me-1"></i>Date</th>
+              <th><i class="fas fa-exchange-alt me-1"></i>Change</th>
+              <th><i class="fas fa-car me-1"></i>Vehicle</th>
+              <th><i class="fas fa-tachometer-alt me-1"></i>Mileage</th>
+              <th><i class="fas fa-sticky-note me-1"></i>Note</th>
+              <th><i class="fas fa-cog me-1"></i>Action</th>
+            </tr>
+          </thead>
+          <tbody id="ledgerTbody">
+        {% for e in ledger %}
+          <tr id="ledger_row_{{ e.id }}" data-entry-id="{{ e.id }}" draggable="false" ondragstart="ledgerDragStart(event)" ondragover="ledgerDragOver(event)" ondrop="ledgerDrop(event)">
+            <td class="ledger-date" data-value="{{ e.created_at.strftime('%Y-%m-%d') if e.created_at }}">{{ e.service_date.strftime('%m/%d/%Y') if e.service_date else (e.created_at.strftime('%m/%d/%Y') if e.created_at else 'N/A') }}</td>
+            <td class="ledger-delta">{{ e.delta }}</td>
+            <td class="ledger-vehicle">
+              {% if e.vehicle_id %}
+                {% for v in vehicles %}
+                  {% if v.id == e.vehicle_id %}
+                    {{ v.year }} {{ v.make }} {{ v.model }}{% if v.plate %} ({{ v.plate }}){% endif %}
+                  {% endif %}
+                {% endfor %}
+              {% endif %}
+            </td>
+            <td class="ledger-mileage" data-value="{{ e.mileage if e.mileage }}">{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
+            <td class="ledger-note" data-value="{{ e.note }}">{{ e.note }}</td>
+            <td class="ledger-actions">
+              <div class="d-flex gap-1">
+                <button type="button" class="btn btn-outline-secondary btn-sm ledger-edit-btn" data-entry-id="{{ e.id }}" title="Edit entry">
+                  <i class="fas fa-edit"></i>
+                </button>
+                <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ e.delta|abs }} oil change{% if (e.delta|abs) != 1 %}s{% endif %}.')">
+                  <button type="submit" class="btn btn-outline-danger btn-sm" title="Delete entry">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div> <!-- /tab-content -->
+
+<!-- Add Contact Modal -->
+<div class="modal fade" id="addContactModal" tabindex="-1" aria-labelledby="addContactModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="addContactModalLabel">Add Contact</h5>
+        <button type="button" class="btn-close" onclick="closeAddContactModal()" aria-label="Close"></button>
+      </div>
+      <form id="addContactForm" method="post" action="/api/customer/{{ c.id }}/contact">
+        <div class="modal-body">
+          <div class="mb-3">
+            <label for="contact_name" class="form-label">Name *</label>
+            <input type="text" class="form-control" id="contact_name" name="contact_name" required>
+          </div>
+          <div class="mb-3">
+            <label for="contact_role" class="form-label">Role</label>
+            <input type="text" class="form-control" id="contact_role" name="role" placeholder="e.g., Spouse, Parent, Business Partner">
+          </div>
+          <div class="mb-3">
+            <label for="contact_mobile" class="form-label">Mobile Phone</label>
+            <input type="tel" class="form-control" id="contact_mobile" name="mobile">
+          </div>
+          <div class="mb-3">
+            <label for="contact_landline" class="form-label">Landline</label>
+            <input type="tel" class="form-control" id="contact_landline" name="landline">
+          </div>
+          <div class="mb-3">
+            <label for="contact_email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="contact_email" name="email">
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="contact_preferred" name="preferred">
+              <label class="form-check-label" for="contact_preferred">
+                Mark as preferred contact
+              </label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="contact_notes" class="form-label">Notes</label>
+            <textarea class="form-control" id="contact_notes" name="notes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" onclick="closeAddContactModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Add Contact</button>
+        </div>
+      </form>
+    </div>
   </div>
 </div>
 
-<div class="mb-4">
-  <h4>History</h4>
-  <table class="table table-bordered table-sm">
-    <thead>
-      <tr><th>Date</th><th>Change</th><th>Vehicle</th><th>Mileage</th><th>Note</th><th>Action</th></tr>
-    </thead>
-    <tbody>
-    {% for e in ledger %}
-      <tr id="ledger_row_{{ e.id }}" data-entry-id="{{ e.id }}">
-        <td class="ledger-date" data-value="{{ e.created_at.strftime('%Y-%m-%d') if e.created_at }}">{{ e.service_date.strftime('%m/%d/%Y') if e.service_date else (e.created_at.strftime('%m/%d/%Y') if e.created_at else 'N/A') }}</td>
-        <td class="ledger-delta">{{ e.delta }}</td>
-        <td class="ledger-vehicle">
-          {% if e.vehicle_id %}
-            {% for v in vehicles %}
-              {% if v.id == e.vehicle_id %}
-                {{ v.year }} {{ v.make }} {{ v.model }}{% if v.plate %} ({{ v.plate }}){% endif %}
-              {% endif %}
-            {% endfor %}
-          {% endif %}
-        </td>
-        <td class="ledger-mileage" data-value="{{ e.mileage if e.mileage }}">{% if e.mileage %}{{ e.mileage }}{% endif %}</td>
-        <td class="ledger-note" data-value="{{ e.note }}">{{ e.note }}</td>
-        <td class="ledger-actions">
-          <button type="button" class="btn btn-outline-secondary btn-sm me-1 ledger-edit-btn" data-entry-id="{{ e.id }}">Edit</button>
-          <form method="post" action="/ui/customer/{{ c.id }}/ledger/{{ e.id }}/delete" class="d-inline" onsubmit="return confirm('Are you sure you want to remove this entry? This will {% if e.delta < 0 %}add back{% else %}remove{% endif %} {{ e.delta|abs }} oil change{% if (e.delta|abs) != 1 %}s{% endif %}.')">
-            <button type="submit" class="btn btn-danger btn-sm">
-              <i class="bi bi-trash"></i>
-            </button>
-          </form>
-        </td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+<!-- Edit Contact Modal -->
+<div class="modal fade" id="editContactModal" tabindex="-1" aria-labelledby="editContactModalLabel" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="editContactModalLabel">Edit Contact</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <form id="editContactForm" method="post">
+        <div class="modal-body">
+          <input type="hidden" id="edit_contact_id" name="contact_id">
+          <div class="mb-3">
+            <label for="edit_contact_name" class="form-label">Name *</label>
+            <input type="text" class="form-control" id="edit_contact_name" name="contact_name" required>
+          </div>
+          <div class="mb-3">
+            <label for="edit_contact_role" class="form-label">Role</label>
+            <input type="text" class="form-control" id="edit_contact_role" name="role" placeholder="e.g., Spouse, Parent, Business Partner">
+          </div>
+          <div class="mb-3">
+            <label for="edit_contact_mobile" class="form-label">Mobile Phone</label>
+            <input type="tel" class="form-control" id="edit_contact_mobile" name="mobile">
+          </div>
+          <div class="mb-3">
+            <label for="edit_contact_landline" class="form-label">Landline</label>
+            <input type="tel" class="form-control" id="edit_contact_landline" name="landline">
+          </div>
+          <div class="mb-3">
+            <label for="edit_contact_email" class="form-label">Email</label>
+            <input type="email" class="form-control" id="edit_contact_email" name="email">
+          </div>
+          <div class="mb-3">
+            <div class="form-check">
+              <input class="form-check-input" type="checkbox" id="edit_contact_preferred" name="preferred">
+              <label class="form-check-label" for="edit_contact_preferred">
+                Mark as preferred contact
+              </label>
+            </div>
+          </div>
+          <div class="mb-3">
+            <label for="edit_contact_notes" class="form-label">Notes</label>
+            <textarea class="form-control" id="edit_contact_notes" name="notes" rows="3"></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary">Update Contact</button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <!-- Edit Vehicle Modal -->
@@ -347,8 +730,297 @@
 </div>
 
 <script>
-// Ledger Edit Modal
-// Modal markup injected near end to avoid large restructures
+// Driver assignment
+async function assignDriver(vehicleId, selectEl){
+  const fd = new FormData();
+  fd.append('driver_id', selectEl.value === '0' ? '' : selectEl.value);
+  try {
+    const resp = await fetch(`/api/vehicle/${vehicleId}/assign-driver`, { method: 'POST', body: fd });
+    if(!resp.ok){ console.warn('Driver assign failed'); }
+  } catch(e){ console.error('Driver assign error', e); }
+}
+
+// Ledger drag & drop with enhanced UI feedback
+let ledgerDragEnabled = false; 
+let draggedRow = null;
+
+function toggleLedgerDrag(){
+  ledgerDragEnabled = !ledgerDragEnabled;
+  const btn = document.getElementById('toggleDragBtn');
+  const btnText = document.getElementById('dragBtnText');
+  const icon = btn.querySelector('i');
+  
+  if (ledgerDragEnabled) {
+    btnText.textContent = 'Disable Drag';
+    icon.className = 'fas fa-lock me-1';
+    btn.classList.remove('btn-outline-primary');
+    btn.classList.add('btn-warning');
+  } else {
+    btnText.textContent = 'Enable Drag';
+    icon.className = 'fas fa-arrows-alt me-1';
+    btn.classList.remove('btn-warning');
+    btn.classList.add('btn-outline-primary');
+  }
+  
+  document.querySelectorAll('#ledgerTbody tr').forEach(r=>{
+    r.setAttribute('draggable', ledgerDragEnabled ? 'true' : 'false');
+    if (ledgerDragEnabled) {
+      r.classList.add('table-warning');
+      r.style.cursor = 'move';
+    } else {
+      r.classList.remove('table-warning');
+      r.style.cursor = 'default';
+    }
+  });
+}
+
+function ledgerDragStart(ev){ 
+  if(!ledgerDragEnabled) { 
+    ev.preventDefault(); 
+    return; 
+  } 
+  draggedRow = ev.currentTarget;
+  draggedRow.style.opacity = '0.5';
+}
+
+function ledgerDragOver(ev){ 
+  if(!ledgerDragEnabled) return; 
+  ev.preventDefault(); 
+  const target=ev.currentTarget; 
+  if(target && target!==draggedRow && target.parentNode===draggedRow.parentNode){ 
+    const rows=[...target.parentNode.children]; 
+    const draggedIndex=rows.indexOf(draggedRow); 
+    const targetIndex=rows.indexOf(target); 
+    if(draggedIndex<targetIndex) target.after(draggedRow); 
+    else target.before(draggedRow); 
+  }
+}
+
+function ledgerDrop(ev){ 
+  if(!ledgerDragEnabled) return; 
+  ev.preventDefault(); 
+  if (draggedRow) {
+    draggedRow.style.opacity = '1';
+  }
+  saveLedgerOrder(); 
+}
+
+async function saveLedgerOrder(){ 
+  const ids=[...document.querySelectorAll('#ledgerTbody tr')].map(r=>r.dataset.entryId); 
+  const fd=new FormData(); 
+  fd.append('entry_ids', ids.join(',')); 
+  try { 
+    const resp=await fetch('/api/ledger/reorder',{method:'POST', body:fd}); 
+    if(!resp.ok) {
+      console.warn('Reorder failed');
+      // Show toast notification
+      showToast('Failed to save order', 'error');
+    } else {
+      showToast('Order saved successfully', 'success');
+    }
+  } catch(e){ 
+    console.error('Reorder error', e); 
+    showToast('Error saving order', 'error');
+  } 
+}
+
+// Enhanced Toast notification system with animations
+function showToast(message, type = 'info') {
+  const toastContainer = getOrCreateToastContainer();
+  const toastId = 'toast-' + Date.now();
+  
+  const toast = document.createElement('div');
+  toast.id = toastId;
+  toast.className = `alert alert-${type === 'error' ? 'danger' : type === 'success' ? 'success' : 'info'} toast-notification shadow-lg`;
+  toast.style.cssText = `
+    position: relative;
+    min-width: 300px;
+    margin-bottom: 10px;
+    border: none;
+    border-radius: 10px;
+    backdrop-filter: blur(10px);
+    animation: slideInRight 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  `;
+  
+  toast.innerHTML = `
+    <div class="d-flex align-items-center justify-content-between">
+      <div class="d-flex align-items-center">
+        <i class="fas fa-${type === 'error' ? 'exclamation-circle' : type === 'success' ? 'check-circle' : 'info-circle'} me-2 fs-5"></i>
+        <span>${message}</span>
+      </div>
+      <button type="button" class="btn-close ms-3" onclick="dismissToast('${toastId}')" aria-label="Close"></button>
+    </div>
+  `;
+  
+  toastContainer.appendChild(toast);
+  
+  // Auto-dismiss after delay
+  const delay = type === 'error' ? 5000 : 3000;
+  setTimeout(() => dismissToast(toastId), delay);
+}
+
+function getOrCreateToastContainer() {
+  let container = document.getElementById('toast-container');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toast-container';
+    container.style.cssText = `
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      z-index: 9999;
+      max-width: 400px;
+    `;
+    document.body.appendChild(container);
+  }
+  return container;
+}
+
+function dismissToast(toastId) {
+  const toast = document.getElementById(toastId);
+  if (toast) {
+    toast.style.animation = 'slideOutRight 0.3s cubic-bezier(0.55, 0.055, 0.675, 0.19)';
+    setTimeout(() => toast.remove(), 300);
+  }
+}
+
+// Enhanced button loading state
+function setButtonLoading(button, loading = true) {
+  if (loading) {
+    button.disabled = true;
+    const originalText = button.innerHTML;
+    button.dataset.originalText = originalText;
+    button.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Loading...';
+    button.classList.add('btn-loading');
+  } else {
+    button.disabled = false;
+    button.innerHTML = button.dataset.originalText || button.innerHTML;
+    button.classList.remove('btn-loading');
+  }
+}
+
+// Enhanced form validation with visual feedback
+function validateForm(form) {
+  const inputs = form.querySelectorAll('input[required], select[required]');
+  let isValid = true;
+  
+  inputs.forEach(input => {
+    if (!input.value.trim()) {
+      isValid = false;
+      input.classList.add('is-invalid');
+      
+      // Add shake animation
+      input.style.animation = 'shake 0.5s ease-in-out';
+      setTimeout(() => {
+        input.style.animation = '';
+      }, 500);
+    } else {
+      input.classList.remove('is-invalid');
+      input.classList.add('is-valid');
+    }
+  });
+  
+  if (!isValid) {
+    showToast('Please fill in all required fields', 'error');
+  }
+  
+  return isValid;
+}
+
+// Add enhanced CSS animations
+if (!document.getElementById('enhanced-animations')) {
+  const animationStyles = document.createElement('style');
+  animationStyles.id = 'enhanced-animations';
+  animationStyles.textContent = `
+    @keyframes slideInRight {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+    
+    @keyframes slideOutRight {
+      from {
+        transform: translateX(0);
+        opacity: 1;
+      }
+      to {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+    }
+    
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-5px); }
+      75% { transform: translateX(5px); }
+    }
+    
+    @keyframes fadeInUp {
+      from {
+        opacity: 0;
+        transform: translateY(20px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+    
+    .toast-notification {
+      transition: all 0.3s ease;
+    }
+    
+    .toast-notification:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+    }
+    
+    .btn-loading {
+      pointer-events: none;
+      opacity: 0.8;
+    }
+    
+    .table tbody tr {
+      transition: all 0.3s ease;
+    }
+    
+    .table tbody tr:hover {
+      background-color: rgba(37, 99, 235, 0.08) !important;
+      transform: translateX(2px);
+      box-shadow: 2px 0 8px rgba(37, 99, 235, 0.15);
+    }
+  `;
+  document.head.appendChild(animationStyles);
+}
+
+// Delegated handlers for vehicle action buttons
+document.addEventListener('click', function(e){
+  const addFour = e.target.closest('.veh-add-four-btn');
+  if(addFour){ openAddFourModal(addFour.dataset.vid, addFour.dataset.vlabel); return; }
+  const editBtn = e.target.closest('.veh-edit-btn');
+  if(editBtn){
+    openEditVehicle(editBtn.dataset.vid, editBtn.dataset.plate, editBtn.dataset.vin, editBtn.dataset.year, editBtn.dataset.make, editBtn.dataset.model, editBtn.dataset.oilw, editBtn.dataset.oilc);
+    return;
+  }
+  const editPlan = e.target.closest('.edit-plan-btn');
+  if(editPlan){
+    openEditPlan(editPlan.dataset.planRemaining);
+    return;
+  }
+});
+
+document.addEventListener('change', function(e){
+  const driverSel = e.target.closest('.driver-select');
+  if(driverSel){
+    assignDriver(driverSel.dataset.vehicleId, driverSel);
+  }
+});
 </script>
 
 <!-- Edit Ledger Entry Modal -->
@@ -462,18 +1134,1235 @@ function openEditPlan(remaining) {
     modal.show();
 }
 
-function promptAddOilChanges() {
-    const modal = new bootstrap.Modal(document.getElementById('addOilChangesModal'));
+// Fixed Add Contact Modal - COMPLETE CUSTOM APPROACH (no Bootstrap)
+function showAddContactModal() {
+    console.log('🔍 showAddContactModal called - using COMPLETE CUSTOM approach');
     
-    // Reset form values
-    document.getElementById('addQuantity').value = '4';
-    document.getElementById('addReason').value = '';
+    // Remove any existing custom modal
+    const existingModal = document.getElementById('custom-add-contact-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
     
-    // Set today's date as default
-    const today = new Date().toISOString().split('T')[0];
-    document.getElementById('addServiceDate').value = today;
+    // Create completely custom modal HTML from scratch (like nuclear modal but with real form)
+    const customModal = document.createElement('div');
+    customModal.id = 'custom-add-contact-modal';
+    customModal.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0,0,0,0.6);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, sans-serif;
+        ">
+            <div style="
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                width: 90%;
+                max-width: 500px;
+                max-height: 90vh;
+                overflow-y: auto;
+                position: relative;
+            ">
+                <div style="
+                    padding: 20px 24px 16px;
+                    border-bottom: 1px solid #e9ecef;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                ">
+                    <h5 style="margin: 0; color: #212529; font-weight: 600;">
+                        Add Contact
+                    </h5>
+                    <button type="button" onclick="closeCustomAddContactModal()" style="
+                        background: none;
+                        border: none;
+                        font-size: 24px;
+                        cursor: pointer;
+                        color: #6c757d;
+                        padding: 0;
+                        width: 32px;
+                        height: 32px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 4px;
+                        margin-left: auto;
+                    " onmouseover="this.style.backgroundColor='#f8f9fa'" onmouseout="this.style.backgroundColor='transparent'">
+                        ×
+                    </button>
+                </div>
+                <div style="padding: 20px 24px;">
+                    <form id="customAddContactForm" onsubmit="submitCustomContact(event)" style="margin: 0;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Name *
+                            </label>
+                            <input type="text" name="contact_name" required style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="Enter contact name" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Role
+                            </label>
+                            <input type="text" name="role" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="e.g., Spouse, Parent, Business Partner" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Mobile Phone
+                            </label>
+                            <input type="tel" name="mobile" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="(555) 123-4567" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Landline
+                            </label>
+                            <input type="tel" name="landline" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="(555) 987-6543" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Email
+                            </label>
+                            <input type="email" name="email" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="contact@example.com" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="
+                                display: flex;
+                                align-items: center;
+                                cursor: pointer;
+                                font-weight: 500;
+                                color: #212529;
+                            ">
+                                <input type="checkbox" name="preferred" style="
+                                    margin-right: 8px;
+                                    width: 16px;
+                                    height: 16px;
+                                " />
+                                Mark as preferred contact
+                            </label>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Notes
+                            </label>
+                            <textarea name="notes" rows="3" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                                resize: vertical;
+                            " placeholder="Additional notes..."></textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                            <button type="button" onclick="closeCustomAddContactModal()" style="
+                                padding: 8px 16px;
+                                border: 1px solid #ced4da;
+                                background: white;
+                                color: #6c757d;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                Cancel
+                            </button>
+                            <button type="submit" style="
+                                padding: 8px 16px;
+                                border: none;
+                                background: #007bff;
+                                color: white;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                Add Contact
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
     
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+    
+    // Add to page
+    document.body.appendChild(customModal);
+    
+    // Focus first input
+    setTimeout(() => {
+        const firstInput = customModal.querySelector('input[type="text"]');
+        if (firstInput) firstInput.focus();
+    }, 100);
+    
+    console.log('🚀 CUSTOM Add Contact modal deployed! Completely independent of Bootstrap!');
+}
+
+// Close function for custom modal
+function closeCustomAddContactModal() {
+    console.log('🚪 Closing custom add contact modal');
+    const customModal = document.getElementById('custom-add-contact-modal');
+    if (customModal) {
+        customModal.remove();
+    }
+    // Restore body scroll
+    document.body.style.overflow = '';
+    console.log('✅ Custom add contact modal closed');
+}
+
+// Submit function for custom form
+function submitCustomContact(event) {
+    event.preventDefault();
+    console.log('📝 Submitting custom contact form');
+    
+    const form = event.target;
+    const formData = new FormData(form);
+    
+    // Convert FormData to regular object for debugging
+    const data = {};
+    for (let [key, value] of formData.entries()) {
+        data[key] = value;
+    }
+    console.log('📊 Form data:', data);
+    
+    // Submit to the same endpoint as the original form
+    const customerId = window.location.pathname.split('/').pop();
+    
+    fetch(`/api/customer/${customerId}/contact`, {
+        method: 'POST',
+        body: formData
+    })
+    .then(response => {
+        if (response.ok) {
+            console.log('✅ Contact added successfully');
+            closeCustomAddContactModal();
+            
+            // Update driver dropdowns with new contact before reloading
+            response.json().then(contactData => {
+                console.log('📋 New contact data:', contactData);
+                updateDriverDropdowns(contactData);
+                
+                // Reload page to show new contact in the contacts section
+                setTimeout(() => {
+                    window.location.reload();
+                }, 500);
+            }).catch(() => {
+                // If JSON parsing fails, just reload
+                window.location.reload();
+            });
+        } else {
+            console.error('❌ Error adding contact:', response.status);
+            alert('Error adding contact. Please try again.');
+        }
+    })
+    .catch(error => {
+        console.error('❌ Network error:', error);
+        alert('Network error. Please check your connection and try again.');
+    });
+}
+
+// Function to update driver dropdowns with new contact
+function updateDriverDropdowns(contactData) {
+    console.log('🔄 Updating driver dropdowns with new contact');
+    
+    const driverSelects = document.querySelectorAll('.driver-select');
+    driverSelects.forEach(select => {
+        // Create new option element
+        const option = document.createElement('option');
+        option.value = `contact_${contactData.id}`;
+        option.textContent = `${contactData.contact_name} (${contactData.role || 'Contact'})`;
+        
+        // Insert after the owner option (usually second option)
+        const ownerOption = select.children[1]; // Assuming owner is second option after "None"
+        if (ownerOption) {
+            select.insertBefore(option, ownerOption.nextSibling);
+        } else {
+            select.appendChild(option);
+        }
+    });
+    
+    console.log('✅ Driver dropdowns updated');
+}
+
+// Enhanced test function for debugging modal issues with forced z-index
+function testModal() {
+    console.log('🧪 Testing modal manually (NUCLEAR OPTION - completely custom modal)');
+    
+    // Remove any existing test modals
+    const existingModal = document.getElementById('nuclear-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Create completely custom modal HTML from scratch
+    const nuclearModal = document.createElement('div');
+    nuclearModal.id = 'nuclear-modal';
+    nuclearModal.innerHTML = `
+        <div style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: rgba(0,0,0,0.6);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: system-ui, -apple-system, sans-serif;
+        ">
+            <div style="
+                background: white;
+                border-radius: 12px;
+                box-shadow: 0 20px 40px rgba(0,0,0,0.3);
+                width: 90%;
+                max-width: 500px;
+                max-height: 90vh;
+                overflow-y: auto;
+                position: relative;
+            ">
+                <div style="
+                    padding: 20px 24px 16px;
+                    border-bottom: 1px solid #e9ecef;
+                    display: flex;
+                    justify-content: between;
+                    align-items: center;
+                ">
+                    <h5 style="margin: 0; color: #212529; font-weight: 600;">
+                        🧪 NUCLEAR MODAL TEST - Add Contact
+                    </h5>
+                    <button type="button" onclick="closeNuclearModal()" style="
+                        background: none;
+                        border: none;
+                        font-size: 24px;
+                        cursor: pointer;
+                        color: #6c757d;
+                        padding: 0;
+                        width: 32px;
+                        height: 32px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 4px;
+                        margin-left: auto;
+                    " onmouseover="this.style.backgroundColor='#f8f9fa'" onmouseout="this.style.backgroundColor='transparent'">
+                        ×
+                    </button>
+                </div>
+                <div style="padding: 20px 24px;">
+                    <p style="color: #28a745; margin: 0 0 16px; font-weight: 500;">
+                        ✅ SUCCESS! If you can see this modal, the CSS issue is confirmed fixed!
+                    </p>
+                    <p style="color: #6c757d; margin: 0 0 20px; font-size: 14px;">
+                        This is a completely custom modal created from scratch with forced styling.
+                        If this works but the Bootstrap modal doesn't, we know it's a Bootstrap/CSS conflict.
+                    </p>
+                    
+                    <form style="margin: 0;">
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Contact Name
+                            </label>
+                            <input type="text" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="Enter contact name" />
+                        </div>
+                        
+                        <div style="margin-bottom: 16px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Role
+                            </label>
+                            <select style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                                background: white;
+                            ">
+                                <option>Spouse</option>
+                                <option>Child</option>
+                                <option>Parent</option>
+                                <option>Employee</option>
+                                <option>Other</option>
+                            </select>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 6px; font-weight: 500; color: #212529;">
+                                Phone
+                            </label>
+                            <input type="tel" style="
+                                width: 100%;
+                                padding: 8px 12px;
+                                border: 1px solid #ced4da;
+                                border-radius: 6px;
+                                font-size: 14px;
+                                box-sizing: border-box;
+                            " placeholder="(555) 123-4567" />
+                        </div>
+                        
+                        <div style="display: flex; gap: 12px; justify-content: flex-end;">
+                            <button type="button" onclick="closeNuclearModal()" style="
+                                padding: 8px 16px;
+                                border: 1px solid #ced4da;
+                                background: white;
+                                color: #6c757d;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            ">
+                                Cancel
+                            </button>
+                            <button type="button" style="
+                                padding: 8px 16px;
+                                border: none;
+                                background: #007bff;
+                                color: white;
+                                border-radius: 6px;
+                                cursor: pointer;
+                                font-size: 14px;
+                            " onclick="alert('✅ Nuclear modal form works! The issue was CSS z-index conflicts.')">
+                                Save Contact
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Prevent body scroll
+    document.body.style.overflow = 'hidden';
+    
+    // Add to page
+    document.body.appendChild(nuclearModal);
+    
+    // Focus first input
+    setTimeout(() => {
+        const firstInput = nuclearModal.querySelector('input');
+        if (firstInput) firstInput.focus();
+    }, 100);
+    
+    console.log('🚀 NUCLEAR MODAL deployed! This should be visible above EVERYTHING!');
+    console.log('💡 If you can see this modal, the original issue is CSS z-index conflicts');
+}
+
+function closeNuclearModal() {
+    console.log('🚪 Closing nuclear modal');
+    const nuclearModal = document.getElementById('nuclear-modal');
+    if (nuclearModal) {
+        nuclearModal.remove();
+    }
+    // Restore body scroll
+    document.body.style.overflow = '';
+    console.log('✅ Nuclear modal closed');
+}
+
+function closeNuclearEditModal() {
+    console.log('🚪 Closing nuclear edit modal');
+    const editModal = document.getElementById('nuclear-edit-modal');
+    if (editModal) {
+        editModal.remove();
+    }
+    console.log('✅ Nuclear edit modal closed');
+}
+
+function closeNuclearOilChangeModal() {
+    console.log('🚪 Closing nuclear oil change modal');
+    const oilChangeModal = document.getElementById('nuclear-oil-change-modal');
+    if (oilChangeModal) {
+        oilChangeModal.remove();
+    }
+    console.log('✅ Nuclear oil change modal closed');
+}
+
+function closeNuclearAddOilChangesModal() {
+    console.log('🚪 Closing nuclear add oil changes modal');
+    const addOilChangesModal = document.getElementById('nuclear-add-oil-changes-modal');
+    if (addOilChangesModal) {
+        addOilChangesModal.remove();
+    }
+    console.log('✅ Nuclear add oil changes modal closed');
+}
+
+function closeTestModal() {
+    console.log('🚪 Closing test modal');
+    
+    const modalEl = document.getElementById('addContactModal');
+    const backdrop = document.getElementById('test-backdrop');
+    
+    if (modalEl) {
+        modalEl.style.display = 'none';
+        modalEl.classList.remove('show');
+        modalEl.setAttribute('aria-hidden', 'true');
+        modalEl.removeAttribute('aria-modal');
+    }
+    
+    if (backdrop) {
+        backdrop.remove();
+    }
+    
+    // Restore body scroll
+    document.body.style.overflow = '';
+    document.body.style.paddingRight = '';
+    
+    console.log('✅ Test modal closed');
+}
+
+// Simple modal diagnostics function
+function diagnoseModal() {
+    alert('🔍 Diagnostic running! Check browser console (F12) for detailed report.');
+    
+    console.clear();
+    console.log('🔍 === MODAL DIAGNOSTIC REPORT ===');
+    
+    // 1. Basic checks
+    console.log('📄 Document ready:', document.readyState);
+    console.log('🅱️  Bootstrap available:', typeof bootstrap !== 'undefined');
+    
+    // 2. Modal element check
+    const modalEl = document.getElementById('addContactModal');
+    console.log('🎯 Modal element found:', !!modalEl);
+    
+    if (modalEl) {
+        const style = window.getComputedStyle(modalEl);
+        console.log('👁️  Current display:', style.display);
+        console.log('👁️  Current visibility:', style.visibility);
+    }
+    
+    // 3. Form check
+    const formEl = document.getElementById('addContactForm');
+    console.log('📝 Form element found:', !!formEl);
+    
+    // 4. Button check
+    const addButton = document.querySelector('button[onclick="showAddContactModal()"]');
+    console.log('🔲 Add Contact button found:', !!addButton);
+    
+    // 5. Test Bootstrap Modal creation
+    if (typeof bootstrap !== 'undefined' && modalEl) {
+        try {
+            const testModal = new bootstrap.Modal(modalEl);
+            console.log('✅ Bootstrap Modal creation: SUCCESS');
+            testModal.dispose(); // Clean up
+        } catch (error) {
+            console.error('❌ Bootstrap Modal creation failed:', error.message);
+        }
+    }
+    
+    console.log('📊 === DIAGNOSTIC COMPLETE ===');
+    console.log('💡 If all checks pass, try clicking "Add Contact" now');
+    console.log('🔧 If issues found, try "Test Modal" as backup');
+}
+
+function editContact(id, name, role, mobile, landline, email, preferred, notes) {
+    console.log('🔧 Opening Edit Contact Modal with Nuclear Solution');
+    
+    // Remove any existing edit modal
+    const existingModal = document.getElementById('nuclear-edit-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Create completely custom modal HTML (bypassing Bootstrap entirely)
+    const modalHTML = `
+        <div id="nuclear-edit-modal" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+            backdrop-filter: blur(3px);
+        ">
+            <div style="
+                background: white;
+                border-radius: 12px;
+                padding: 0;
+                max-width: 500px;
+                width: 90%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                position: relative;
+                animation: modalSlideIn 0.3s ease-out;
+            ">
+                <!-- Header -->
+                <div style="
+                    background: linear-gradient(135deg, #007bff, #0056b3);
+                    color: white;
+                    padding: 20px;
+                    border-radius: 12px 12px 0 0;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                ">
+                    <h5 style="margin: 0; font-weight: 600;">✏️ Edit Contact</h5>
+                    <button type="button" onclick="closeNuclearEditModal()" style="
+                        background: none;
+                        border: none;
+                        color: white;
+                        font-size: 24px;
+                        cursor: pointer;
+                        padding: 0;
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='none'">×</button>
+                </div>
+                
+                <!-- Body -->
+                <div style="padding: 25px;">
+                    <form id="nuclearEditContactForm" method="post" action="/api/customer/{{ c.id }}/contact/${id}">
+                        <input type="hidden" name="contact_id" value="${id}">
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Name *</label>
+                            <input type="text" name="contact_name" value="${name}" required style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Role</label>
+                            <input type="text" name="role" value="${role}" placeholder="e.g., Spouse, Parent, Business Partner" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Mobile Phone</label>
+                            <input type="tel" name="mobile" value="${mobile}" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Landline</label>
+                            <input type="tel" name="landline" value="${landline}" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Email</label>
+                            <input type="email" name="email" value="${email}" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: flex; align-items: center; cursor: pointer; font-weight: 500; color: #333;">
+                                <input type="checkbox" name="preferred" ${preferred ? 'checked' : ''} style="
+                                    margin-right: 10px;
+                                    transform: scale(1.2);
+                                    cursor: pointer;
+                                ">
+                                Preferred Contact
+                            </label>
+                        </div>
+                        
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Notes</label>
+                            <textarea name="notes" rows="3" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                                resize: vertical;
+                                min-height: 80px;
+                            " onfocus="this.style.borderColor='#007bff'" onblur="this.style.borderColor='#e0e0e0'">${notes}</textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" onclick="closeNuclearEditModal()" style="
+                                padding: 12px 24px;
+                                background: #6c757d;
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: background 0.2s;
+                            " onmouseover="this.style.background='#5a6268'" onmouseout="this.style.background='#6c757d'">Cancel</button>
+                            
+                            <button type="submit" style="
+                                padding: 12px 24px;
+                                background: linear-gradient(135deg, #007bff, #0056b3);
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: all 0.2s;
+                                box-shadow: 0 4px 12px rgba(0,123,255,0.3);
+                            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 16px rgba(0,123,255,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(0,123,255,0.3)'">💾 Update Contact</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Inject modal into page
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Add form submission handler
+    document.getElementById('nuclearEditContactForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        console.log('📝 Submitting edit contact form...');
+        
+        const formData = new FormData(this);
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        
+        // Show loading state
+        submitBtn.innerHTML = '⏳ Updating...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch(this.action, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                console.log('✅ Contact updated successfully');
+                closeNuclearEditModal();
+                
+                // Reload page to show updated contact
+                window.location.reload();
+            } else {
+                console.error('❌ Error updating contact:', response.statusText);
+                alert('Error updating contact. Please try again.');
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        } catch (error) {
+            console.error('❌ Network error:', error);
+            alert('Network error. Please check your connection and try again.');
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    });
+    
+    // Focus first input
+    setTimeout(() => {
+        document.querySelector('#nuclear-edit-modal input[name="contact_name"]').focus();
+    }, 100);
+    
+    console.log('✅ Nuclear Edit Contact Modal opened successfully');
+}
+
+function deleteContact(id, name) {
+    // Enhanced confirmation with better styling
+    const confirmed = confirm(`🗑️ Delete Contact\n\nAre you sure you want to delete "${name}"?\n\nThis action cannot be undone.`);
+    
+    if (confirmed) {
+        // Find the delete button to show loading state
+        const deleteBtn = event?.target?.closest('button');
+        if (deleteBtn) {
+            setButtonLoading(deleteBtn, true);
+            deleteBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+        }
+        
+        showToast('Deleting contact...', 'info');
+        
+        fetch(`/api/customer/{{ c.id }}/contact/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Content-Type': 'application/json',
+            }
+        })
+        .then(response => {
+            if (response.ok) {
+                showToast(`Contact "${name}" deleted successfully`, 'success');
+                
+                // Animate row removal
+                const contactRow = deleteBtn?.closest('tr');
+                if (contactRow) {
+                    contactRow.style.animation = 'fadeOut 0.4s ease-out';
+                    setTimeout(() => {
+                        location.reload();
+                    }, 400);
+                } else {
+                    setTimeout(() => location.reload(), 1000);
+                }
+            } else {
+                throw new Error('Failed to delete contact');
+            }
+        })
+        .catch(error => {
+            console.error('Delete error:', error);
+            showToast('Failed to delete contact. Please try again.', 'error');
+        })
+        .finally(() => {
+            if (deleteBtn) {
+                setButtonLoading(deleteBtn, false);
+                deleteBtn.innerHTML = '<i class="fas fa-trash"></i>';
+            }
+        });
+    }
+}
+
+// Enhanced form submission with validation and loading states
+function handleContactForm(form, isEdit = false) {
+    const submitBtn = form.querySelector('button[type="submit"]');
+    
+    // Validate form
+    if (!validateForm(form)) {
+        return false;
+    }
+    
+    // Set loading state
+    setButtonLoading(submitBtn, true);
+    
+    const formData = new FormData(form);
+    const contactName = formData.get('name');
+    const actionText = isEdit ? 'Updating' : 'Adding';
+    
+    showToast(`${actionText} contact "${contactName}"...`, 'info');
+    
+    return true; // Allow form submission to proceed
+}
+
+// Add fade out animation for contact deletion
+if (!document.getElementById('contact-animations')) {
+  const contactAnimations = document.createElement('style');
+  contactAnimations.id = 'contact-animations';
+  contactAnimations.textContent = `
+    @keyframes fadeOut {
+      from {
+        opacity: 1;
+        transform: translateX(0);
+      }
+      to {
+        opacity: 0;
+        transform: translateX(-20px);
+      }
+    }
+    
+    .contact-row {
+      transition: all 0.2s ease;
+    }
+    
+    .contact-row:hover {
+      background-color: rgba(37, 99, 235, 0.05) !important;
+      /* Removed translateX for large sections */
+    }
+    
+    .contact-actions .btn {
+      transition: all 0.2s ease;
+    }
+    
+    .contact-actions .btn:hover {
+      transform: scale(1.05);
+    }
+  `;
+  document.head.appendChild(contactAnimations);
+}
+
+// Enhanced form event listeners
+document.addEventListener('DOMContentLoaded', function() {
+    // Add contact form enhancement
+    const addContactForm = document.getElementById('addContactForm');
+    if (addContactForm) {
+        addContactForm.addEventListener('submit', function(e) {
+            if (!handleContactForm(this, false)) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    }
+    
+    // Edit contact form enhancement
+    const editContactForm = document.getElementById('editContactForm');
+    if (editContactForm) {
+        editContactForm.addEventListener('submit', function(e) {
+            if (!handleContactForm(this, true)) {
+                e.preventDefault();
+                return false;
+            }
+        });
+    }
+    
+    // Real-time validation for contact forms
+    const contactInputs = document.querySelectorAll('#addContactModal input, #editContactModal input');
+    contactInputs.forEach(input => {
+        input.addEventListener('blur', function() {
+            if (this.hasAttribute('required') && !this.value.trim()) {
+                this.classList.add('is-invalid');
+                this.classList.remove('is-valid');
+            } else if (this.value.trim()) {
+                this.classList.remove('is-invalid');
+                this.classList.add('is-valid');
+            }
+        });
+        
+        input.addEventListener('input', function() {
+            if (this.classList.contains('is-invalid') && this.value.trim()) {
+                this.classList.remove('is-invalid');
+                this.classList.add('is-valid');
+            }
+        });
+    });
+});
+
+// Duplicate Customer Handling Functions
+function addDuplicateAsContact() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const contactName = urlParams.get('contact_name');
+    const phone = urlParams.get('phone');
+    const email = urlParams.get('email');
+    
+    // Pre-fill the add contact modal with duplicate information
+    document.getElementById('contact_name').value = contactName || '';
+    document.getElementById('contact_mobile').value = phone || '';
+    document.getElementById('contact_email').value = email || '';
+    document.getElementById('contact_role').value = 'Related Person';
+    document.getElementById('contact_notes').value = 'Added from potential duplicate customer';
+    
+    // Show the add contact modal
+    const modal = new bootstrap.Modal(document.getElementById('addContactModal'));
     modal.show();
+    
+    // Clean up URL parameters
+    window.history.replaceState({}, document.title, window.location.pathname);
+}
+
+function createNewCustomerAnyway() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const contactName = urlParams.get('contact_name') || '';
+    const phone = urlParams.get('phone') || '';
+    const email = urlParams.get('email') || '';
+    
+    // Split name into first/last
+    const nameParts = contactName.split(' ');
+    const firstName = nameParts[0] || '';
+    const lastName = nameParts.slice(1).join(' ') || '';
+    
+    // Create form data
+    const formData = new FormData();
+    formData.append('first_name', firstName);
+    formData.append('last_name', lastName);
+    formData.append('phone', phone);
+    formData.append('email', email);
+    formData.append('force_create', 'true'); // Flag to bypass duplicate check
+    
+    // Submit to create new customer
+    fetch('/ui/customer/new', {
+        method: 'POST',
+        body: formData
+    }).then(response => {
+        if (response.redirected) {
+            window.location.href = response.url;
+        }
+    });
+}
+
+function promptAddOilChanges() {
+    console.log('🔄 Opening Add Oil Changes Modal with Nuclear Solution');
+    
+    // Remove any existing add oil changes modal
+    const existingModal = document.getElementById('nuclear-add-oil-changes-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
+    
+    // Get today's date
+    const today = new Date().toISOString().split('T')[0];
+    
+    // Create completely custom modal HTML (bypassing Bootstrap entirely)
+    const modalHTML = `
+        <div id="nuclear-add-oil-changes-modal" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+            backdrop-filter: blur(3px);
+        ">
+            <div style="
+                background: white;
+                border-radius: 12px;
+                padding: 0;
+                max-width: 500px;
+                width: 90%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                position: relative;
+                animation: modalSlideIn 0.3s ease-out;
+            ">
+                <!-- Header -->
+                <div style="
+                    background: linear-gradient(135deg, #28a745, #1e7e34);
+                    color: white;
+                    padding: 20px;
+                    border-radius: 12px 12px 0 0;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                ">
+                    <h5 style="margin: 0; font-weight: 600;">🔄 Add Free Oil Changes</h5>
+                    <button type="button" onclick="closeNuclearAddOilChangesModal()" style="
+                        background: none;
+                        border: none;
+                        color: white;
+                        font-size: 24px;
+                        cursor: pointer;
+                        padding: 0;
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='none'">×</button>
+                </div>
+                
+                <!-- Body -->
+                <div style="padding: 25px;">
+                    <div style="
+                        background: linear-gradient(135deg, #d4edda, #c3e6cb);
+                        border: 1px solid #28a745;
+                        border-radius: 8px;
+                        padding: 15px;
+                        margin-bottom: 20px;
+                    ">
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 18px; margin-right: 8px;">💡</span>
+                            <strong>Add prepaid oil change credits to this customer's account</strong>
+                        </div>
+                    </div>
+                    
+                    <form id="nuclearAddOilChangesForm" method="post" action="/ui/customer/{{ c.id }}/add-oil-changes">
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Number of Oil Changes *</label>
+                            <input type="number" name="quantity" value="4" required min="1" max="50" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#28a745'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Purchase/Service Date</label>
+                            <input type="date" name="service_date" value="${today}" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#28a745'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Reason/Notes</label>
+                            <textarea name="reason" rows="3" placeholder="e.g., Purchased 4-pack deal, promotional offer, warranty service, etc." style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                                resize: vertical;
+                                min-height: 80px;
+                            " onfocus="this.style.borderColor='#28a745'" onblur="this.style.borderColor='#e0e0e0'"></textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" onclick="closeNuclearAddOilChangesModal()" style="
+                                padding: 12px 24px;
+                                background: #6c757d;
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: background 0.2s;
+                            " onmouseover="this.style.background='#5a6268'" onmouseout="this.style.background='#6c757d'">Cancel</button>
+                            
+                            <button type="submit" style="
+                                padding: 12px 24px;
+                                background: linear-gradient(135deg, #28a745, #1e7e34);
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: all 0.2s;
+                                box-shadow: 0 4px 12px rgba(40,167,69,0.3);
+                            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 16px rgba(40,167,69,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(40,167,69,0.3)'">🔄 Add Oil Changes</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    // Inject modal into page
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Add form submission handler
+    document.getElementById('nuclearAddOilChangesForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        console.log('🔄 Submitting add oil changes form...');
+        
+        const formData = new FormData(this);
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        
+        // Show loading state
+        submitBtn.innerHTML = '⏳ Adding...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch(this.action, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                console.log('✅ Oil changes added successfully');
+                closeNuclearAddOilChangesModal();
+                
+                // Reload page to show updated data
+                window.location.reload();
+            } else {
+                console.error('❌ Error adding oil changes:', response.statusText);
+                alert('Error adding oil changes. Please try again.');
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        } catch (error) {
+            console.error('❌ Network error:', error);
+            alert('Network error. Please check your connection and try again.');
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    });
+    
+    // Focus quantity input
+    setTimeout(() => {
+        document.querySelector('#nuclear-add-oil-changes-modal input[name="quantity"]').focus();
+    }, 100);
+    
+    console.log('✅ Nuclear Add Oil Changes Modal opened successfully');
 }
 
 document.addEventListener('DOMContentLoaded', function() {
@@ -487,6 +2376,43 @@ document.addEventListener('DOMContentLoaded', function() {
         errorModal.show();
         // Clean up the URL
         window.history.replaceState({}, document.title, window.location.pathname);
+    }
+    
+    // Contact form event listeners
+    const addContactForm = document.getElementById('addContactForm');
+    if (addContactForm) {
+        addContactForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch(this.action, {
+                method: 'POST',
+                body: formData
+            }).then(response => {
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to add contact');
+                }
+            });
+        });
+    }
+    
+    const editContactForm = document.getElementById('editContactForm');
+    if (editContactForm) {
+        editContactForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            const formData = new FormData(this);
+            fetch(this.action, {
+                method: 'POST',
+                body: formData
+            }).then(response => {
+                if (response.ok) {
+                    location.reload();
+                } else {
+                    alert('Failed to update contact');
+                }
+            });
+        });
     }
     
     // Add form submission handler for mileage validation
@@ -594,21 +2520,229 @@ document.addEventListener('click', function(ev){
 });
 
 function openUseOilChangeModal(vehicleId, vehicleInfo, lastMileage) {
-    document.getElementById('useVehicleId').value = vehicleId;
-    document.getElementById('useVehicleInfo').value = vehicleInfo;
-    document.getElementById('useMileage').value = '';
-    document.getElementById('useServiceDate').value = '{{ today_date }}';
+    console.log('🛠️ Opening Use Oil Change Modal with Nuclear Solution');
     
-    // Store last mileage for validation
-    document.getElementById('useMileage').setAttribute('data-last-mileage', lastMileage || 0);
+    // Remove any existing oil change modal
+    const existingModal = document.getElementById('nuclear-oil-change-modal');
+    if (existingModal) {
+        existingModal.remove();
+    }
     
-    const modal = new bootstrap.Modal(document.getElementById('useOilChangeModal'));
-    modal.show();
+    // Create completely custom modal HTML (bypassing Bootstrap entirely)
+    const modalHTML = `
+        <div id="nuclear-oil-change-modal" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 99999;
+            backdrop-filter: blur(3px);
+        ">
+            <div style="
+                background: white;
+                border-radius: 12px;
+                padding: 0;
+                max-width: 500px;
+                width: 90%;
+                max-height: 90vh;
+                overflow-y: auto;
+                box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                position: relative;
+                animation: modalSlideIn 0.3s ease-out;
+            ">
+                <!-- Header -->
+                <div style="
+                    background: linear-gradient(135deg, #ffc107, #ff8f00);
+                    color: #333;
+                    padding: 20px;
+                    border-radius: 12px 12px 0 0;
+                    display: flex;
+                    justify-content: space-between;
+                    align-items: center;
+                ">
+                    <h5 style="margin: 0; font-weight: 600;">🛠️ Use Oil Change</h5>
+                    <button type="button" onclick="closeNuclearOilChangeModal()" style="
+                        background: none;
+                        border: none;
+                        color: #333;
+                        font-size: 24px;
+                        cursor: pointer;
+                        padding: 0;
+                        width: 30px;
+                        height: 30px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        transition: background 0.2s;
+                    " onmouseover="this.style.background='rgba(0,0,0,0.1)'" onmouseout="this.style.background='none'">×</button>
+                </div>
+                
+                <!-- Body -->
+                <div style="padding: 25px;">
+                    <div style="
+                        background: linear-gradient(135deg, #fff3cd, #ffeaa7);
+                        border: 1px solid #ffc107;
+                        border-radius: 8px;
+                        padding: 15px;
+                        margin-bottom: 20px;
+                    ">
+                        <div style="display: flex; align-items: center; margin-bottom: 8px;">
+                            <span style="font-size: 18px; margin-right: 8px;">🚗</span>
+                            <strong>Vehicle:</strong> <span style="margin-left: 8px;">${vehicleInfo}</span>
+                        </div>
+                        <div style="display: flex; align-items: center;">
+                            <span style="font-size: 18px; margin-right: 8px;">📊</span>
+                            <strong>Last Recorded Mileage:</strong> <span style="margin-left: 8px;">${lastMileage || 'None'}</span>
+                        </div>
+                    </div>
+                    
+                    <form id="nuclearUseOilChangeForm" method="post" action="/ui/customer/{{ c.id }}/use-oil-change">
+                        <input type="hidden" name="vehicle_id" value="${vehicleId}">
+                        <input type="hidden" name="vehicle_info" value="${vehicleInfo}">
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Current Mileage *</label>
+                            <input type="number" name="mileage" required min="${(lastMileage || 0) + 1}" placeholder="Enter current mileage" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#ffc107'" onblur="this.style.borderColor='#e0e0e0'" data-last-mileage="${lastMileage || 0}">
+                            <small style="color: #666; font-size: 12px;">Must be greater than last recorded mileage (${lastMileage || 0})</small>
+                        </div>
+                        
+                        <div style="margin-bottom: 20px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Service Date</label>
+                            <input type="date" name="service_date" value="{{ today_date }}" style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                            " onfocus="this.style.borderColor='#ffc107'" onblur="this.style.borderColor='#e0e0e0'">
+                        </div>
+                        
+                        <div style="margin-bottom: 25px;">
+                            <label style="display: block; margin-bottom: 5px; font-weight: 500; color: #333;">Oil Type & Notes</label>
+                            <textarea name="note" rows="3" placeholder="e.g., 5W-30 Full Synthetic, filter replaced, etc." style="
+                                width: 100%;
+                                padding: 12px;
+                                border: 2px solid #e0e0e0;
+                                border-radius: 8px;
+                                font-size: 14px;
+                                transition: border-color 0.2s;
+                                box-sizing: border-box;
+                                resize: vertical;
+                                min-height: 80px;
+                            " onfocus="this.style.borderColor='#ffc107'" onblur="this.style.borderColor='#e0e0e0'"></textarea>
+                        </div>
+                        
+                        <div style="display: flex; gap: 10px; justify-content: flex-end;">
+                            <button type="button" onclick="closeNuclearOilChangeModal()" style="
+                                padding: 12px 24px;
+                                background: #6c757d;
+                                color: white;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: background 0.2s;
+                            " onmouseover="this.style.background='#5a6268'" onmouseout="this.style.background='#6c757d'">Cancel</button>
+                            
+                            <button type="submit" style="
+                                padding: 12px 24px;
+                                background: linear-gradient(135deg, #ffc107, #ff8f00);
+                                color: #333;
+                                border: none;
+                                border-radius: 8px;
+                                cursor: pointer;
+                                font-size: 14px;
+                                font-weight: 500;
+                                transition: all 0.2s;
+                                box-shadow: 0 4px 12px rgba(255,193,7,0.3);
+                            " onmouseover="this.style.transform='translateY(-1px)'; this.style.boxShadow='0 6px 16px rgba(255,193,7,0.4)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 12px rgba(255,193,7,0.3)'">🛠️ Use Oil Change</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    `;
     
-    // Auto-focus on mileage input after modal is shown
-    document.getElementById('useOilChangeModal').addEventListener('shown.bs.modal', function () {
-        document.getElementById('useMileage').focus();
-    }, { once: true });
+    // Inject modal into page
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+    
+    // Add form submission handler
+    document.getElementById('nuclearUseOilChangeForm').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        console.log('🛠️ Submitting use oil change form...');
+        
+        const formData = new FormData(this);
+        const submitBtn = this.querySelector('button[type="submit"]');
+        const originalText = submitBtn.innerHTML;
+        
+        // Show loading state
+        submitBtn.innerHTML = '⏳ Processing...';
+        submitBtn.disabled = true;
+        
+        try {
+            const response = await fetch(this.action, {
+                method: 'POST',
+                body: formData
+            });
+            
+            if (response.ok) {
+                console.log('✅ Oil change recorded successfully');
+                closeNuclearOilChangeModal();
+                
+                // Reload page to show updated data
+                window.location.reload();
+            } else {
+                console.error('❌ Error recording oil change:', response.statusText);
+                alert('Error recording oil change. Please try again.');
+                submitBtn.innerHTML = originalText;
+                submitBtn.disabled = false;
+            }
+        } catch (error) {
+            console.error('❌ Network error:', error);
+            alert('Network error. Please check your connection and try again.');
+            submitBtn.innerHTML = originalText;
+            submitBtn.disabled = false;
+        }
+    });
+    
+    // Focus mileage input and validate
+    setTimeout(() => {
+        const mileageInput = document.querySelector('#nuclear-oil-change-modal input[name="mileage"]');
+        mileageInput.focus();
+        
+        // Add mileage validation
+        mileageInput.addEventListener('input', function() {
+            const lastMileage = parseInt(this.getAttribute('data-last-mileage') || 0);
+            const currentValue = parseInt(this.value || 0);
+            
+            if (currentValue <= lastMileage) {
+                this.style.borderColor = '#dc3545';
+                this.style.backgroundColor = '#fff5f5';
+            } else {
+                this.style.borderColor = '#28a745';
+                this.style.backgroundColor = '#f8fff8';
+            }
+        });
+    }, 100);
+    
+    console.log('✅ Nuclear Use Oil Change Modal opened successfully');
 }
 
 function openAddFourModal(vehicleId, vehicleInfo) {

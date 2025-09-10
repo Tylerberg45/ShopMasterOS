@@ -1,0 +1,47 @@
+{% extends "layout.html" %}
+{% block content %}
+<div class="container py-4">
+  <div class="d-print-none mb-3">
+    <a href="/ui/customer/{{ c.id }}" class="btn btn-secondary btn-sm">Back</a>
+    <button onclick="window.print()" class="btn btn-primary btn-sm">Print</button>
+    <a href="/ui/customer/{{ c.id }}/export-pdf" class="btn btn-success btn-sm">Download PDF</a>
+  </div>
+  <h2 class="text-center mb-0">Grismer Tire - Free Oil Change Log</h2>
+  <h5 class="text-center text-muted mb-4">{{ c.first_name }} {{ c.last_name }}{% if c.phone %} • {{ c.phone }}{% endif %}</h5>
+  <h6>Vehicles</h6>
+  <table class="table table-sm">
+    <thead><tr><th>Year</th><th>Make</th><th>Model</th><th>Plate</th><th>VIN</th><th>Driver</th></tr></thead>
+    <tbody>
+    {% for v in vehicles %}
+      <tr>
+        <td>{{ v.year }}</td><td>{{ v.make }}</td><td>{{ v.model }}</td><td>{{ v.plate }}</td><td>{{ v.vin }}</td>
+        <td>{% if v.driver_id %}{% for d in all_customers %}{% if d.id == v.driver_id %}{{ d.first_name }} {{ d.last_name }}{% endif %}{% endfor %}{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <h6 class="mt-4">Ledger History</h6>
+  <table class="table table-bordered table-sm">
+    <thead><tr><th>#</th><th>Date</th><th>Δ</th><th>Vehicle</th><th>Mileage</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for e in ledger %}
+      <tr>
+        <td>{{ loop.index }}</td>
+        <td>{{ e.created_at.strftime('%Y-%m-%d') if e.created_at }}</td>
+        <td>{{ e.delta }}</td>
+        <td>{% if e.vehicle_id %}{% for v in vehicles %}{% if v.id == e.vehicle_id %}{{ v.year }} {{ v.make }} {{ v.model }}{% if v.plate %} ({{ v.plate }}){% endif %}{% endif %}{% endfor %}{% endif %}</td>
+        <td>{{ e.mileage or '' }}</td>
+        <td>{{ e.note }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <div class="mt-4 small text-muted">Generated {{ generated_at }} • Remaining Free Oil Changes: {% if plan %}{{ plan.remaining }}{% else %}N/A{% endif %}</div>
+</div>
+<style>
+@media print {
+  .d-print-none { display: none !important; }
+  body { background: #fff; }
+}
+</style>
+{% endblock %}

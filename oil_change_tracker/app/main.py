@@ -1,5 +1,5 @@
-from fastapi import FastAPI, Request, Depends, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi import FastAPI, Request, Depends, Form, HTTPException, Body
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from datetime import datetime
@@ -8,6 +8,8 @@ from sqlalchemy import case, desc, text, func
 from .database import Base, engine, get_db, SessionLocal
 from .models.models import Customer, OilChangePlan, OilChangeLedger, Vehicle, Contact
 from .routers import customers as customers_router
+import weasyprint
+from io import BytesIO
 from .routers import vehicles as vehicles_router
 from .services.phone import normalize_phone
 import re
@@ -52,11 +54,13 @@ else:
 # This is a failsafe for cases where migration state is inconsistent
 def ensure_customer_columns():
     """Ensure customers table has landline and email columns"""
+    # Ensure driver_id and order_index columns exist
     try:
         from sqlalchemy import text, inspect
         
         with engine.connect() as conn:
             inspector = inspect(conn)
+            to_add = []
             
             # Check if customers table exists
             if 'customers' in inspector.get_table_names():
@@ -76,6 +80,24 @@ def ensure_customer_columns():
                     conn.execute(text("ALTER TABLE customers ADD COLUMN email VARCHAR(255)"))
                     conn.commit()
                     print("✅ Added email column")
+                
+            # Ensure driver_id and order_index columns exist (tables may or may not exist yet)
+            table_names = inspector.get_table_names()
+            if 'vehicles' in table_names:
+                vehicle_cols = [c['name'] for c in inspector.get_columns('vehicles')]
+                if 'driver_id' not in vehicle_cols:
+                    to_add.append("ALTER TABLE vehicles ADD COLUMN driver_id INTEGER REFERENCES customers(id)")
+            if 'oil_change_ledger' in table_names:
+                ledger_cols = [c['name'] for c in inspector.get_columns('oil_change_ledger')]
+                if 'order_index' not in ledger_cols:
+                    to_add.append("ALTER TABLE oil_change_ledger ADD COLUMN order_index INTEGER")
+            for stmt in to_add:
+                try:
+                    conn.execute(text(stmt))
+                    conn.commit()
+                    print(f"✅ Executed: {stmt}")
+                except Exception as e:  # noqa
+                    print(f"Column ensure skipped or failed: {stmt}: {e}")
                     
                 if 'landline' in columns and 'email' in columns:
                     print("✅ All required columns exist")
@@ -99,12 +121,60 @@ def get_abs(value):
     return abs(value)
 
 @app.get("/", response_class=HTMLResponse)
-def home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+def home(request: Request, db: Session = Depends(get_db)):
+    # Get detailed analytics data for home page
+    customers = db.query(Customer).all()
+    vehicle_count = db.query(Vehicle).count()
+    
+    # Count actual oil changes (negative deltas) vs purchases (positive deltas)
+    oil_changes_performed = db.query(OilChangeLedger).filter(OilChangeLedger.delta < 0).count()
+    oil_changes_purchased = db.query(OilChangeLedger).filter(OilChangeLedger.delta > 0).count()
+    total_ledger_entries = oil_changes_performed + oil_changes_purchased
+    
+    # Get recent activity (last 30 days)
+    from datetime import datetime, timedelta
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    recent_activity = db.query(OilChangeLedger).filter(
+        OilChangeLedger.created_at >= thirty_days_ago
+    ).count()
+    
+    return templates.TemplateResponse("home.html", {
+        "request": request,
+        "customers": customers,
+        "vehicle_count": vehicle_count,
+        "ledger_count": total_ledger_entries,
+        "oil_changes_performed": oil_changes_performed,
+        "oil_changes_purchased": oil_changes_purchased,
+        "recent_activity": recent_activity
+    })
 
 @app.get("/ui", response_class=HTMLResponse)
-def ui_home(request: Request):
-    return templates.TemplateResponse("home.html", {"request": request})
+def ui_home(request: Request, db: Session = Depends(get_db)):
+    # Get detailed analytics data for home page
+    customers = db.query(Customer).all()
+    vehicle_count = db.query(Vehicle).count()
+    
+    # Count actual oil changes (negative deltas) vs purchases (positive deltas)
+    oil_changes_performed = db.query(OilChangeLedger).filter(OilChangeLedger.delta < 0).count()
+    oil_changes_purchased = db.query(OilChangeLedger).filter(OilChangeLedger.delta > 0).count()
+    total_ledger_entries = oil_changes_performed + oil_changes_purchased
+    
+    # Get recent activity (last 30 days)
+    from datetime import datetime, timedelta
+    thirty_days_ago = datetime.now() - timedelta(days=30)
+    recent_activity = db.query(OilChangeLedger).filter(
+        OilChangeLedger.created_at >= thirty_days_ago
+    ).count()
+    
+    return templates.TemplateResponse("home.html", {
+        "request": request,
+        "customers": customers,
+        "vehicle_count": vehicle_count,
+        "ledger_count": total_ledger_entries,
+        "oil_changes_performed": oil_changes_performed,
+        "oil_changes_purchased": oil_changes_purchased,
+        "recent_activity": recent_activity
+    })
 
 @app.post("/ui/search", response_class=HTMLResponse)
 def ui_search(request: Request, name_or_phone: str = Form(...), db: Session = Depends(get_db)):
@@ -134,8 +204,30 @@ def ui_search(request: Request, name_or_phone: str = Form(...), db: Session = De
                 Customer.last_name.ilike(f"%{last}%")
             ).all()
     if not results:
+        # Get detailed analytics data for home page when returning with pre-fill
+        customers = db.query(Customer).all()
+        vehicle_count = db.query(Vehicle).count()
+        
+        # Count actual oil changes (negative deltas) vs purchases (positive deltas)
+        oil_changes_performed = db.query(OilChangeLedger).filter(OilChangeLedger.delta < 0).count()
+        oil_changes_purchased = db.query(OilChangeLedger).filter(OilChangeLedger.delta > 0).count()
+        total_ledger_entries = oil_changes_performed + oil_changes_purchased
+        
+        # Get recent activity (last 30 days)
+        from datetime import datetime, timedelta
+        thirty_days_ago = datetime.now() - timedelta(days=30)
+        recent_activity = db.query(OilChangeLedger).filter(
+            OilChangeLedger.created_at >= thirty_days_ago
+        ).count()
+        
         return templates.TemplateResponse("home.html", {
             "request": request,
+            "customers": customers,
+            "vehicle_count": vehicle_count,
+            "ledger_count": total_ledger_entries,
+            "oil_changes_performed": oil_changes_performed,
+            "oil_changes_purchased": oil_changes_purchased,
+            "recent_activity": recent_activity,
             "pre_fill": {
                 "first_name": "",
                 "last_name": "",
@@ -179,7 +271,12 @@ def get_customer(customer_id: int, request: Request, db: Session = Depends(get_d
     # Get the first active plan (template expects single plan object)
     plan = plans[0] if plans else None
     contacts = db.query(Contact).filter(Contact.customer_id == customer_id).order_by(Contact.preferred.desc(), Contact.contact_name).all()
-    ledger_entries = db.query(OilChangeLedger).filter(OilChangeLedger.customer_id == customer_id).order_by(desc(OilChangeLedger.created_at)).all()
+    # Order ledger: entries with manual order_index first (ascending), then falling back to created_at desc
+    ledger_entries = db.query(OilChangeLedger).filter(OilChangeLedger.customer_id == customer_id).order_by(
+        case((OilChangeLedger.order_index.is_(None), 1), else_=0),  # Non-null order_index rows first (0)
+        OilChangeLedger.order_index.asc(),
+        desc(OilChangeLedger.created_at)
+    ).all()
     
     # Calculate vehicle oil changes count and last mileage efficiently
     vehicle_last_mileage = {}
@@ -229,6 +326,9 @@ def get_customer(customer_id: int, request: Request, db: Session = Depends(get_d
     
     # Provide both legacy key 'ledger' used by template and explicit 'ledger_entries'
     from datetime import datetime as _dt
+    # Provide all customers for unrestricted driver assignment scope
+    all_customers = db.query(Customer).order_by(Customer.last_name, Customer.first_name).all()
+
     return templates.TemplateResponse("customer.html", {
         "request": request,
         "c": c,
@@ -239,8 +339,87 @@ def get_customer(customer_id: int, request: Request, db: Session = Depends(get_d
         "ledger_entries": ledger_entries,  # For future explicit usage
         "vehicle_last_mileage": vehicle_last_mileage,
         "vehicle_oil_changes": vehicle_oil_changes,
-        "today_date": _dt.utcnow().strftime('%Y-%m-%d')
+        "today_date": _dt.utcnow().strftime('%Y-%m-%d'),
+        "all_customers": all_customers
     })
+
+@app.get("/ui/customer/{customer_id}/print-log", response_class=HTMLResponse)
+def print_log(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    c = db.get(Customer, customer_id)
+    if not c:
+        return RedirectResponse(url="/ui", status_code=303)
+    vehicles = db.query(Vehicle).filter(Vehicle.customer_id == customer_id).all()
+    # Reuse ordering logic
+    ledger_entries = db.query(OilChangeLedger).filter(OilChangeLedger.customer_id == customer_id).order_by(
+        case((OilChangeLedger.order_index.is_(None), 1), else_=0),
+        OilChangeLedger.order_index.asc(),
+        desc(OilChangeLedger.created_at)
+    ).all()
+    plan = db.query(OilChangePlan).filter(OilChangePlan.customer_id == customer_id, OilChangePlan.active == True).first()
+    all_customers = db.query(Customer).order_by(Customer.last_name, Customer.first_name).all()
+    return templates.TemplateResponse("print_log.html", {
+        "request": request,
+        "c": c,
+        "vehicles": vehicles,
+        "ledger": ledger_entries,
+        "plan": plan,
+        "all_customers": all_customers,
+        "generated_at": datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    })
+
+@app.get("/ui/customer/{customer_id}/export-pdf")
+def export_pdf(customer_id: int, request: Request, db: Session = Depends(get_db)):
+    c = db.get(Customer, customer_id)
+    if not c:
+        return RedirectResponse(url="/ui", status_code=303)
+    vehicles = db.query(Vehicle).filter(Vehicle.customer_id == customer_id).all()
+    # Reuse ordering logic
+    ledger_entries = db.query(OilChangeLedger).filter(OilChangeLedger.customer_id == customer_id).order_by(
+        case((OilChangeLedger.order_index.is_(None), 1), else_=0),
+        OilChangeLedger.order_index.asc(),
+        desc(OilChangeLedger.created_at)
+    ).all()
+    plan = db.query(OilChangePlan).filter(OilChangePlan.customer_id == customer_id, OilChangePlan.active == True).first()
+    all_customers = db.query(Customer).order_by(Customer.last_name, Customer.first_name).all()
+    
+    # Render HTML template to string
+    template_response = templates.TemplateResponse("print_log_pdf.html", {
+        "request": request,
+        "c": c,
+        "vehicles": vehicles,
+        "ledger": ledger_entries,
+        "plan": plan,
+        "all_customers": all_customers,
+        "generated_at": datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    })
+    
+    # Get the rendered HTML content
+    import asyncio
+    from starlette.background import BackgroundTask
+    
+    # Create a temporary response to get the body
+    temp_response = templates.get_template("print_log_pdf.html").render({
+        "request": request,
+        "c": c,
+        "vehicles": vehicles,
+        "ledger": ledger_entries,
+        "plan": plan,
+        "all_customers": all_customers,
+        "generated_at": datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    })
+    
+    # Generate PDF
+    pdf_buffer = BytesIO()
+    weasyprint.HTML(string=temp_response).write_pdf(pdf_buffer)
+    pdf_buffer.seek(0)
+    
+    # Return PDF as response
+    filename = f"oil_change_log_{c.first_name}_{c.last_name}_{datetime.utcnow().strftime('%Y%m%d')}.pdf"
+    return Response(
+        content=pdf_buffer.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 @app.post("/customers/ui/edit")
 async def edit_customer(request: Request, customer_id: int = Form(...), first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(...), email: str = Form(""), landline: str = Form("")):
@@ -468,9 +647,37 @@ def ui_deduct_oil_change(
         return RedirectResponse(f"/ui/customer/{customer_id}?error=Service+failed", status_code=303)
 
 @app.post("/ui/customer/new")
-def ui_new_customer(first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(""), landline: str = Form(""), email: str = Form(""), db: Session = Depends(get_db)):
+def ui_new_customer(first_name: str = Form(...), last_name: str = Form(...), phone: str = Form(""), landline: str = Form(""), email: str = Form(""), force_create: bool = Form(False), db: Session = Depends(get_db)):
     try:
-        c = Customer(first_name=first_name.strip(), last_name=last_name.strip(), phone=normalize_phone(phone), landline=normalize_phone(landline), email=email.strip())
+        normalized_phone = normalize_phone(phone)
+        
+        # Check for duplicate customers by phone number (unless forced)
+        if not force_create:
+            potential_duplicates = []
+            if normalized_phone:
+                # Search for exact phone matches
+                existing_customers = db.query(Customer).filter(
+                    (Customer.phone == normalized_phone) | (Customer.landline == normalized_phone)
+                ).all()
+                potential_duplicates.extend(existing_customers)
+                
+                # Also check contacts table for phone matches
+                existing_contacts = db.query(Contact).filter(
+                    (Contact.mobile == normalized_phone) | (Contact.landline == normalized_phone)
+                ).all()
+                for contact in existing_contacts:
+                    if contact.customer not in potential_duplicates:
+                        potential_duplicates.append(contact.customer)
+            
+            # If duplicates found, redirect to duplicate resolution page
+            if potential_duplicates:
+                # For now, redirect to first match with suggestion to add as contact
+                first_match = potential_duplicates[0]
+                encoded_name = urlencode({'contact_name': f"{first_name} {last_name}", 'phone': phone, 'email': email})
+                return RedirectResponse(f"/ui/customer/{first_match.id}?duplicate_suggestion=true&{encoded_name}", status_code=303)
+        
+        # No duplicates found or force create, create new customer
+        c = Customer(first_name=first_name.strip(), last_name=last_name.strip(), phone=normalized_phone, landline=normalize_phone(landline), email=email.strip())
         db.add(c)
         db.flush()
         plan = OilChangePlan(customer_id=c.id, total_allowed=0, remaining=0, active=True)
@@ -871,6 +1078,111 @@ def db_health():
         except Exception:
             v = None
     return {"ok": True, "db_version": v}
+
+# --- New API: Driver assignment (unrestricted) ---
+@app.post("/api/vehicle/{vehicle_id}/assign-driver")
+def api_assign_driver(vehicle_id: int, driver_id: int = Form(...), db: Session = Depends(get_db)):
+    vehicle = db.get(Vehicle, vehicle_id)
+    if not vehicle:
+        raise HTTPException(status_code=404, detail="Vehicle not found")
+    if driver_id == 0:
+        vehicle.driver_id = None
+    else:
+        driver = db.get(Customer, driver_id)
+        if not driver:
+            raise HTTPException(status_code=404, detail="Driver not found")
+        vehicle.driver_id = driver.id
+    db.commit()
+    return {"ok": True, "vehicle_id": vehicle_id, "driver_id": vehicle.driver_id}
+
+# --- New API: Ledger reorder (drag & drop) ---
+@app.post("/api/ledger/reorder")
+def api_reorder_ledger(entry_ids: str = Form(...), db: Session = Depends(get_db)):
+    # entry_ids comes as comma-separated string from JS
+    try:
+        ids = [int(e) for e in entry_ids.split(',') if e.strip()]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid entry_ids payload")
+    for idx, eid in enumerate(ids, start=1):
+        db.query(OilChangeLedger).filter(OilChangeLedger.id == eid).update({"order_index": idx})
+    db.commit()
+    return {"ok": True, "count": len(ids)}
+
+# --- New API: Contact management ---
+@app.post("/api/customer/{customer_id}/contact")
+def api_add_contact(customer_id: int, contact_name: str = Form(...), role: str = Form(""), mobile: str = Form(""), landline: str = Form(""), email: str = Form(""), preferred: bool = Form(False), notes: str = Form(""), db: Session = Depends(get_db)):
+    try:
+        # If this is preferred, unset other preferred contacts for this customer
+        if preferred:
+            db.query(Contact).filter(Contact.customer_id == customer_id).update({"preferred": False})
+        
+        contact = Contact(
+            customer_id=customer_id, 
+            contact_name=contact_name.strip(), 
+            role=role.strip(), 
+            mobile=mobile.strip(), 
+            landline=landline.strip(), 
+            email=email.strip(), 
+            preferred=preferred, 
+            notes=notes.strip()
+        )
+        db.add(contact)
+        db.commit()
+        
+        # Return complete contact data for frontend updates
+        return {
+            "ok": True,
+            "id": contact.id,
+            "contact_name": contact.contact_name,
+            "role": contact.role,
+            "mobile": contact.mobile,
+            "landline": contact.landline,
+            "email": contact.email,
+            "preferred": contact.preferred,
+            "notes": contact.notes
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to add contact: {str(e)}")
+
+@app.post("/api/customer/{customer_id}/contact/{contact_id}")
+def api_edit_contact(customer_id: int, contact_id: int, contact_name: str = Form(...), role: str = Form(""), mobile: str = Form(""), landline: str = Form(""), email: str = Form(""), preferred: bool = Form(False), notes: str = Form(""), db: Session = Depends(get_db)):
+    try:
+        contact = db.query(Contact).filter(Contact.id == contact_id, Contact.customer_id == customer_id).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        
+        # If this is preferred, unset other preferred contacts for this customer
+        if preferred:
+            db.query(Contact).filter(Contact.customer_id == customer_id, Contact.id != contact_id).update({"preferred": False})
+        
+        contact.contact_name = contact_name.strip()
+        contact.role = role.strip()
+        contact.mobile = mobile.strip()
+        contact.landline = landline.strip()
+        contact.email = email.strip()
+        contact.preferred = preferred
+        contact.notes = notes.strip()
+        db.commit()
+        return {"ok": True, "contact_id": contact.id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to edit contact: {str(e)}")
+
+@app.delete("/api/customer/{customer_id}/contact/{contact_id}")
+def api_delete_contact(customer_id: int, contact_id: int, db: Session = Depends(get_db)):
+    try:
+        contact = db.query(Contact).filter(Contact.id == contact_id, Contact.customer_id == customer_id).first()
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        
+        db.delete(contact)
+        db.commit()
+        return {"ok": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete contact: {str(e)}")
 
 # Optional debug endpoint to list registered routes (enabled when APP_DEBUG=1)
 if os.environ.get("APP_DEBUG") == "1":
