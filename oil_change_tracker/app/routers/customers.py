@@ -68,8 +68,7 @@ def deduct_oil_change(customer_id: int, payload: OilChangeDeduct, db: Session = 
     plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
     if not plan:
         raise HTTPException(404, "Active plan not found")
-    if plan.remaining <= 0:
-        raise HTTPException(400, "No remaining oil changes")
+    # Allow negative values - removed the check for plan.remaining <= 0
         
     plan.remaining -= 1
     db.add(OilChangeLedger(

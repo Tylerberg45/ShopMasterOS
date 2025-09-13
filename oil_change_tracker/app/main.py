@@ -391,13 +391,10 @@ def ui_deduct_oil_change(
         if not vehicle or vehicle.customer_id != customer_id:
             return RedirectResponse(f"/ui/customer/{customer_id}?error=Invalid+vehicle", status_code=303)
         
-        # Check if customer has oil changes remaining
+        # Check if customer has oil changes remaining (allow negative values)
         plan = db.query(OilChangePlan).filter_by(customer_id=customer_id, active=True).first()
         if not plan:
             return RedirectResponse(f"/ui/customer/{customer_id}?error=No+active+oil+change+plan", status_code=303)
-        
-        if plan.remaining <= 0:
-            return RedirectResponse(f"/ui/customer/{customer_id}?error=No+oil+changes+remaining", status_code=303)
         
         # Validate mileage (should be positive and reasonable)
         if mileage < 0 or mileage > 999999:
@@ -410,7 +407,9 @@ def ui_deduct_oil_change(
         ).order_by(OilChangeLedger.created_at.desc()).first()
         
         # Validate mileage against previous entry (unless confirmed)
-        if last_entry and last_entry.mileage and not confirm_mileage:
+        if confirm_mileage:
+            print(f"✅ Mileage confirmed by user: {mileage:,}")
+        elif last_entry and last_entry.mileage:
             last_mileage = last_entry.mileage
             mileage_diff = mileage - last_mileage
             
@@ -429,8 +428,6 @@ def ui_deduct_oil_change(
                 )
             
             print(f"✅ Mileage validation passed: {last_mileage:,} → {mileage:,} (+{mileage_diff:,} miles)")
-        elif confirm_mileage:
-            print(f"✅ Mileage confirmed by user: {mileage:,}")
         else:
             print(f"✅ First mileage entry for vehicle: {mileage:,}")
         
